@@ -374,6 +374,9 @@ def chat(request: ChatRequest):
     # CSV 실적 데이터를 AI에게 전달
     project_context = get_project_context()
 
+    # Python으로 계산한 연도별 실적
+    yearly_summary = get_yearly_summary()
+
     ai_messages = [
         {
             "role": "system",
@@ -383,6 +386,8 @@ def chat(request: ChatRequest):
                 "데이터에 없는 수치나 사실은 만들어내지 마세요.\n"
                 "금액 계산과 기간별 집계는 정확하게 수행하세요.\n\n"
                 + project_context
+                + "\n\nPython으로 계산한 정확한 연도별 집계 결과:\n"
+                + str(yearly_summary)
             )
         }
     ] + messages
@@ -447,17 +452,32 @@ def get_project_context():
 
     return "\n".join(lines)
 
-@app.get("/api/data/verify-2022")
-def verify_2022():
+def get_yearly_summary():
     projects = load_project_data()
+    summary = {}
 
-    projects_2022 = [
-        p for p in projects
-        if p["date"].startswith("2022-")
-    ]
+    for project in projects:
+        year = project["date"][:4]
+        value = int(project["value"])
 
-    return {
-        "year": 2022,
-        "count": len(projects_2022),
-        "total_value": sum(int(p["value"]) for p in projects_2022)
-    }
+        if year not in summary:
+            summary[year] = {
+                "count": 0,
+                "total_value": 0
+            }
+
+        summary[year]["count"] += 1
+        summary[year]["total_value"] += value
+
+    for year, data in summary.items():
+        data["average_value"] = (
+            data["total_value"] // data["count"]
+            if data["count"] > 0
+            else "해당 없음"
+        )
+
+    return summary
+
+@app.get("/api/data/yearly-summary")
+def yearly_summary():
+    return get_yearly_summary()
