@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로봇자동화 SI 실적 비서</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="app-header">
+    <h1>🤖 로봇자동화 SI 실적 비서</h1>
+    </header>
+
+    <div class="app-layout">
+
+        <!-- 왼쪽 사이드바 -->
+        <aside id="sidebar">
+            <button id="new-chat-button">＋ 새 채팅</button>
+
+            <h3>이전 대화</h3>
+            <div id="conversation-list"></div>
+        </aside>
+
+        <!-- 오른쪽 채팅 화면 -->
+        <main class="chat-main">
+
+            <p class="chat-description">
+                프로젝트 수주 실적을 AI에게 질문해 보세요.
+            </p>
+
+            <div id="chat-box">
+                <p class="ai-message">AI 비서: 안녕하세요! 무엇이 궁금하신가요?</p>
+            </div>
+
+            <div class="input-area">
+                <input
+                    type="text"
+                    id="user-input"
+                    placeholder="질문을 입력하세요"
+                >
+                <button id="send-button">전송</button>
+            </div>
+        </main>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

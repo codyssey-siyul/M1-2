@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore
+from fastapi.responses import FileResponse
+
 
 CSV_PATH = Path(__file__).resolve().parent / "robot_si_synthetic_2022_2026_revised.csv"
 
@@ -17,6 +19,21 @@ def load_project_data():
         return list(reader)
 
 app = FastAPI()
+
+# 웹페이지 및 CSS, JavaScript 파일 제공
+@app.get("/app")
+def serve_frontend():
+    return FileResponse("index.html")
+
+# CSS 파일 제공
+@app.get("/style.css")
+def serve_css():
+    return FileResponse("style.css")
+
+# JavaScript 파일 제공
+@app.get("/script.js")
+def serve_javascript():
+    return FileResponse("script.js")
 
 load_dotenv()
 
