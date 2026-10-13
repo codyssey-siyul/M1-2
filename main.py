@@ -254,12 +254,39 @@ from uuid import uuid4
 # Firebase 연결 전 임시 대화 저장소
 conversations = {}
 
+# 대화 기록 저장 (Firebase 연결 시 영구 저장)
+def save_conversation(conversation_id, conversation_data):
+    if db is not None:
+        db.collection("conversations").document(conversation_id).set(
+            conversation_data
+        )
+    else:
+        conversations[conversation_id] = conversation_data
+
+# 대화 기록 1건 조회
+def load_conversation(conversation_id):
+    if db is not None:
+        doc = db.collection("conversations").document(conversation_id).get()
+
+        if doc.exists:
+            return doc.to_dict()
+        return None
+
+    return conversations.get(conversation_id)
+
+# 전체 대화 기록 조회
+def load_all_conversations():
+    if db is not None:
+        docs = db.collection("conversations").stream()
+        return [doc.to_dict() for doc in docs]
+
+    return list(conversations.values())
 
 @app.post("/api/conversations")
 def create_conversation(conversation: ConversationCreate):
     conversation_id = str(uuid4())
 
-    conversations[conversation_id] = {
+    conversation_data = {
         "id": conversation_id,
         "title": conversation.title,
         "messages": [
@@ -269,6 +296,8 @@ def create_conversation(conversation: ConversationCreate):
         "created_at": datetime.now().isoformat()
     }
 
+    save_conversation(conversation_id, conversation_data)
+
     return {
         "message": "대화 기록이 저장되었습니다.",
         "id": conversation_id
@@ -276,9 +305,11 @@ def create_conversation(conversation: ConversationCreate):
 
 @app.get("/api/conversations")
 def get_conversations():
+    conversation_list = load_all_conversations()
+
     return {
-        "count": len(conversations),
-        "conversations": list(conversations.values())
+        "count": len(conversation_list),
+        "conversations": conversation_list
     }
 
 from fastapi import HTTPException
@@ -286,23 +317,30 @@ from fastapi import HTTPException
 
 @app.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str):
-    if conversation_id not in conversations:
+    conversation = load_conversation(conversation_id)
+
+    if conversation is None:
         raise HTTPException(
             status_code=404,
             detail="해당 대화 기록을 찾을 수 없습니다."
         )
 
-    return conversations[conversation_id]
+    return conversation
 
 @app.delete("/api/conversations/{conversation_id}")
 def delete_conversation(conversation_id: str):
-    if conversation_id not in conversations:
+    conversation = load_conversation(conversation_id)
+
+    if conversation is None:
         raise HTTPException(
             status_code=404,
             detail="해당 대화 기록을 찾을 수 없습니다."
         )
 
-    del conversations[conversation_id]
+    if db is not None:
+        db.collection("conversations").document(conversation_id).delete()
+    else:
+        del conversations[conversation_id]
 
     return {
         "message": "대화 기록이 삭제되었습니다.",
@@ -314,17 +352,21 @@ def update_conversation(
     conversation_id: str,
     conversation: ConversationCreate
 ):
-    if conversation_id not in conversations:
+    conversation_data = load_conversation(conversation_id)
+
+    if conversation_data is None:
         raise HTTPException(
             status_code=404,
             detail="해당 대화 기록을 찾을 수 없습니다."
         )
 
-    conversations[conversation_id]["title"] = conversation.title
-    conversations[conversation_id]["messages"] = [
+    conversation_data["title"] = conversation.title
+    conversation_data["messages"] = [
         message.model_dump()
         for message in conversation.messages
     ]
+
+    save_conversation(conversation_id, conversation_data)
 
     return {
         "message": "대화 기록이 수정되었습니다.",
@@ -351,14 +393,16 @@ def test_chat():
 def chat(request: ChatRequest):
     # 기존 대화 이어가기
     if request.conversation_id is not None:
-        if request.conversation_id not in conversations:
+        conversation_data = load_conversation(request.conversation_id)
+
+        if conversation_data is None:
             raise HTTPException(
                 status_code=404,
                 detail="해당 대화 기록을 찾을 수 없습니다."
             )
 
         conversation_id = request.conversation_id
-        messages = conversations[conversation_id]["messages"].copy()
+        messages = conversation_data["messages"].copy()
 
     # 새로운 대화 시작
     else:
@@ -418,14 +462,16 @@ def chat(request: ChatRequest):
 
     # 대화 기록 자동 저장
     if request.conversation_id is None:
-        conversations[conversation_id] = {
+        conversation_data = {
             "id": conversation_id,
             "title": request.message[:30],
             "messages": messages,
             "created_at": datetime.now().isoformat()
         }
     else:
-        conversations[conversation_id]["messages"] = messages
+        conversation_data["messages"] = messages
+
+    save_conversation(conversation_id, conversation_data)
 
     return {
         "conversation_id": conversation_id,
