@@ -1,13 +1,23 @@
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
+import csv
+from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+CSV_PATH = Path(__file__).resolve().parent / "robot_si_synthetic_2022_2026_revised.csv"
+
+def load_project_data():
+    with open(CSV_PATH, mode="r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        return list(reader)
+
 app = FastAPI()
+
 load_dotenv()
 
 client = OpenAI(
@@ -361,10 +371,26 @@ def chat(request: ChatRequest):
         "content": request.message
     })
 
+    # CSV 실적 데이터를 AI에게 전달
+    project_context = get_project_context()
+
+    ai_messages = [
+        {
+            "role": "system",
+            "content": (
+                "당신은 로봇자동화 SI 프로젝트 실적 분석 AI 비서입니다.\n"
+                "다음 CSV 데이터를 근거로 사용자의 질문에 답변하세요.\n"
+                "데이터에 없는 수치나 사실은 만들어내지 마세요.\n"
+                "금액 계산과 기간별 집계는 정확하게 수행하세요.\n\n"
+                + project_context
+            )
+        }
+    ] + messages
+
     # 실제 AI 답변 생성
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL"),
-        messages=messages
+        messages=ai_messages
     )
 
     answer = response.choices[0].message.content or ""
@@ -389,4 +415,49 @@ def chat(request: ChatRequest):
     return {
         "conversation_id": conversation_id,
         "answer": answer
+    }
+
+@app.get("/api/data/csv-test")
+def test_csv_data():
+    projects = load_project_data()
+
+    return {
+        "total_count": len(projects),
+        "sample": projects[:2]
+    }
+
+def get_project_context():
+    projects = load_project_data()
+
+    lines = [
+        "다음은 2022~2026년 로봇자동화 SI 프로젝트의 실제 분석용 데이터입니다.",
+        "금액 단위는 원이며, CSV에 없는 정보는 추측하지 마세요.",
+        "수주가 없는 달은 건수와 합계가 0이고, 평균은 '해당 없음'입니다.",
+        "프로젝트 실적 데이터:"
+    ]
+
+    for project in projects:
+        lines.append(
+            f"날짜: {project['date']}, "
+            f"금액: {project['value']}원, "
+            f"유형: {project['project_type']}, "
+            f"기간: {project['duration_days']}일, "
+            f"메모: {project['memo']}"
+        )
+
+    return "\n".join(lines)
+
+@app.get("/api/data/verify-2022")
+def verify_2022():
+    projects = load_project_data()
+
+    projects_2022 = [
+        p for p in projects
+        if p["date"].startswith("2022-")
+    ]
+
+    return {
+        "year": 2022,
+        "count": len(projects_2022),
+        "total_value": sum(int(p["value"]) for p in projects_2022)
     }
