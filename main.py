@@ -380,6 +380,9 @@ def chat(request: ChatRequest):
     # Python으로 계산한 월별 실적
     monthly_summary = get_monthly_summary()
 
+    # Python으로 계산한 프로젝트 유형별 실적
+    project_type_summary = get_project_type_summary()
+
     ai_messages = [
         {
             "role": "system",
@@ -393,6 +396,8 @@ def chat(request: ChatRequest):
                 + str(yearly_summary)
                 + "\n\nPython으로 계산한 정확한 월별 집계 결과:\n"
                 + str(monthly_summary)
+                + "\n\nPython으로 계산한 정확한 프로젝트 유형별 집계 결과:\n"
+                + str(project_type_summary)
             )
         }
     ] + messages
@@ -522,3 +527,33 @@ def get_monthly_summary():
 @app.get("/api/data/monthly-summary")
 def monthly_summary():
     return get_monthly_summary()
+
+def get_project_type_summary():
+    projects = load_project_data()
+    summary = {}
+
+    for project in projects:
+        project_type = project["project_type"]
+        value = int(project["value"])
+
+        if project_type not in summary:
+            summary[project_type] = {
+                "count": 0,
+                "total_value": 0
+            }
+
+        summary[project_type]["count"] += 1
+        summary[project_type]["total_value"] += value
+
+    for data in summary.values():
+        data["average_value"] = (
+            data["total_value"] // data["count"]
+            if data["count"] > 0
+            else "해당 없음"
+        )
+
+    return summary
+
+@app.get("/api/data/project-type-summary")
+def project_type_summary():
+    return get_project_type_summary()
