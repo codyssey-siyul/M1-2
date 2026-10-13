@@ -377,6 +377,9 @@ def chat(request: ChatRequest):
     # Python으로 계산한 연도별 실적
     yearly_summary = get_yearly_summary()
 
+    # Python으로 계산한 월별 실적
+    monthly_summary = get_monthly_summary()
+
     ai_messages = [
         {
             "role": "system",
@@ -388,6 +391,8 @@ def chat(request: ChatRequest):
                 + project_context
                 + "\n\nPython으로 계산한 정확한 연도별 집계 결과:\n"
                 + str(yearly_summary)
+                + "\n\nPython으로 계산한 정확한 월별 집계 결과:\n"
+                + str(monthly_summary)
             )
         }
     ] + messages
@@ -481,3 +486,39 @@ def get_yearly_summary():
 @app.get("/api/data/yearly-summary")
 def yearly_summary():
     return get_yearly_summary()
+
+def get_monthly_summary():
+    projects = load_project_data()
+    summary = {}
+
+    # 2022년 1월 ~ 2026년 12월 초기화
+    for year in range(2022, 2027):
+        for month in range(1, 13):
+            key = f"{year}-{month:02d}"
+            summary[key] = {
+                "count": 0,
+                "total_value": 0,
+                "average_value": "해당 없음"
+            }
+
+    # 실제 수주 데이터 집계
+    for project in projects:
+        month = project["date"][:7]
+        value = int(project["value"])
+
+        if month in summary:
+            summary[month]["count"] += 1
+            summary[month]["total_value"] += value
+
+    # 월별 평균 계산
+    for data in summary.values():
+        if data["count"] > 0:
+            data["average_value"] = (
+                data["total_value"] // data["count"]
+            )
+
+    return summary
+
+@app.get("/api/data/monthly-summary")
+def monthly_summary():
+    return get_monthly_summary()
