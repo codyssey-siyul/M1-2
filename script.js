@@ -237,3 +237,204 @@ async function loadConversation(id) {
 
 // 웹페이지 시작 시 이전 대화 목록 불러오기
 loadConversations();
+
+// 채팅 화면과 대시보드 화면 전환
+const dashboardButton = document.getElementById("dashboard-button");
+const dashboardPage = document.getElementById("dashboard-page");
+const chatMain = document.querySelector(".chat-main");
+
+// 실적 대시보드 버튼 클릭
+dashboardButton.addEventListener("click", function() {
+    chatMain.hidden = true;
+    dashboardPage.hidden = false;
+});
+
+// 새 채팅 버튼 클릭 시 채팅 화면으로 전환
+newChatButton.addEventListener("click", function() {
+    dashboardPage.hidden = true;
+    chatMain.hidden = false;
+});
+
+// 대시보드 전체 실적 요약 불러오기
+async function loadDashboardSummary() {
+    try {
+        const response = await fetch("/api/data/yearly-summary");
+
+        if (!response.ok) {
+            throw new Error("실적 데이터 조회 실패");
+        }
+
+        const yearlyData = await response.json();
+
+        let totalValue = 0;
+        let totalCount = 0;
+
+        // 연도별 실적을 합산하여 전체 실적 계산
+        Object.values(yearlyData).forEach(function(year) {
+            totalValue += year.total_value;
+            totalCount += year.count;
+        });
+
+        // 전체 평균 수주금액 계산
+        const averageValue = totalCount > 0
+            ? Math.round(totalValue / totalCount)
+            : null;
+
+        // 화면에 실적 표시
+        document.getElementById("total-order-value").textContent =
+            totalValue.toLocaleString("ko-KR") + "원";
+
+        document.getElementById("total-order-count").textContent =
+            totalCount.toLocaleString("ko-KR") + "건";
+
+        document.getElementById("average-order-value").textContent =
+            averageValue === null
+                ? "해당 없음"
+                : averageValue.toLocaleString("ko-KR") + "원";
+
+    } catch (error) {
+        console.error("대시보드 실적 조회 오류:", error);
+    }
+}
+
+// 대시보드 버튼 클릭 시 실적 데이터 불러오기
+dashboardButton.addEventListener("click", loadDashboardSummary);
+
+// 연도별 수주금액 그래프
+let yearlyChart = null;
+
+async function loadYearlyChart() {
+    try {
+        const response = await fetch("/api/data/yearly-summary");
+
+        if (!response.ok) {
+            throw new Error("연도별 실적 조회 실패");
+        }
+
+        const yearlyData = await response.json();
+
+        // 연도 및 수주금액 추출
+        const years = Object.keys(yearlyData).sort();
+        const values = years.map(function(year) {
+            return yearlyData[year].total_value / 100000000;
+        });
+
+        const canvas = document.getElementById("yearly-chart");
+
+        // 기존 그래프가 있다면 삭제 (중복 생성 방지)
+        if (yearlyChart !== null) {
+            yearlyChart.destroy();
+        }
+
+        // 막대그래프 생성
+        yearlyChart = new Chart(canvas, {
+            type: "bar",
+            data: {
+                labels: years,
+                datasets: [{
+                    label: "수주금액 (억 원)",
+                    data: values,
+                    backgroundColor: "#41658a",
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: "수주금액 (억 원)"
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("연도별 그래프 오류:", error);
+    }
+}
+
+// 대시보드 클릭 시 연도별 그래프 불러오기
+dashboardButton.addEventListener("click", loadYearlyChart);
+
+// 월별 수주금액 추이 그래프
+let monthlyChart = null;
+
+async function loadMonthlyChart() {
+    try {
+        const response = await fetch("/api/data/monthly-summary");
+
+        if (!response.ok) {
+            throw new Error("월별 실적 조회 실패");
+        }
+
+        const monthlyData = await response.json();
+        const selectedYear = document.getElementById("monthly-year-select").value;
+
+        // 선택한 연도의 1월~12월 수주금액
+        const months = [];
+        const values = [];
+
+        for (let month = 1; month <= 12; month++) {
+            const monthKey = `${selectedYear}-${String(month).padStart(2, "0")}`;
+
+            months.push(`${month}월`);
+            values.push(
+                (monthlyData[monthKey]?.total_value ?? 0) / 100000000
+            );
+        }
+
+        const canvas = document.getElementById("monthly-chart");
+
+        // 기존 그래프 제거
+        if (monthlyChart !== null) {
+            monthlyChart.destroy();
+        }
+
+        // 월별 수주금액 꺾은선그래프
+        monthlyChart = new Chart(canvas, {
+            type: "line",
+            data: {
+                labels: months,
+                datasets: [{
+                    label: "월별 수주금액 (억 원)",
+                    data: values,
+                    borderColor: "#41658a",
+                    backgroundColor: "rgba(65, 101, 138, 0.15)",
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: "수주금액 (억 원)"
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("월별 그래프 오류:", error);
+    }
+}
+
+// 대시보드 진입 시 월별 그래프 표시
+dashboardButton.addEventListener("click", loadMonthlyChart);
+
+// 조회 연도 변경 시 그래프 갱신
+document.getElementById("monthly-year-select").addEventListener(
+    "change",
+    loadMonthlyChart
+);
