@@ -438,3 +438,133 @@ document.getElementById("monthly-year-select").addEventListener(
     "change",
     loadMonthlyChart
 );
+
+// 프로젝트 유형별 수주금액 그래프
+let projectTypeValueChart = null;
+
+async function loadProjectTypeValueChart() {
+    try {
+        const response = await fetch("/api/data/project-type-summary");
+
+        if (!response.ok) {
+            throw new Error("프로젝트 유형별 실적 조회 실패");
+        }
+
+        const projectData = await response.json();
+
+        // 수주금액이 큰 유형부터 정렬
+        const sortedData = Object.entries(projectData).sort(
+            (a, b) => b[1].total_value - a[1].total_value
+        );
+
+        const labels = sortedData.map(item => item[0]);
+        const values = sortedData.map(
+            item => item[1].total_value / 100000000
+        );
+
+        const canvas = document.getElementById("project-type-value-chart");
+
+        if (projectTypeValueChart !== null) {
+            projectTypeValueChart.destroy();
+        }
+
+        projectTypeValueChart = new Chart(canvas, {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "수주금액 (억 원)",
+                    data: values,
+                    backgroundColor: "#41658a",
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: "수주금액 (억 원)"
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("프로젝트 유형별 수주금액 그래프 오류:", error);
+    }
+}
+
+// 대시보드 진입 시 프로젝트 유형별 수주금액 그래프 표시
+dashboardButton.addEventListener("click", loadProjectTypeValueChart);
+
+// 프로젝트 유형별 수주건수 그래프
+let projectTypeCountChart = null;
+
+async function loadProjectTypeCountChart() {
+    try {
+        const response = await fetch("/api/data/project-type-summary");
+
+        if (!response.ok) {
+            throw new Error("프로젝트 유형별 실적 조회 실패");
+        }
+
+        const projectData = await response.json();
+
+        // 수주건수가 많은 유형부터 정렬
+        const sortedData = Object.entries(projectData).sort(
+            (a, b) => b[1].count - a[1].count
+        );
+
+        const labels = sortedData.map(item => item[0]);
+        const counts = sortedData.map(item => item[1].count);
+
+        const canvas = document.getElementById("project-type-count-chart");
+
+        // 기존 그래프 제거
+        if (projectTypeCountChart !== null) {
+            projectTypeCountChart.destroy();
+        }
+
+        projectTypeCountChart = new Chart(canvas, {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "수주건수 (건)",
+                    data: counts,
+                    backgroundColor: "#6b8eae",
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        },
+                        title: {
+                            display: true,
+                            text: "수주건수 (건)"
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("프로젝트 유형별 수주건수 그래프 오류:", error);
+    }
+}
+
+// 대시보드 진입 시 프로젝트 유형별 수주건수 그래프 표시
+dashboardButton.addEventListener("click", loadProjectTypeCountChart);

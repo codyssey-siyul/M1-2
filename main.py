@@ -587,6 +587,38 @@ def get_monthly_summary():
 
     return summary
 
+
+def get_project_type_summary():
+    projects = load_project_data()
+    summary = {}
+
+    for project in projects:
+        project_type = project["project_type"]
+        value = int(project["value"])
+
+        if project_type not in summary:
+            summary[project_type] = {
+                "count": 0,
+                "total_value": 0,
+                "average_value": "해당 없음"
+            }
+
+        summary[project_type]["count"] += 1
+        summary[project_type]["total_value"] += value
+
+    for data in summary.values():
+        if data["count"] > 0:
+            data["average_value"] = (
+                data["total_value"] // data["count"]
+            )
+
+    return summary
+
+
+@app.get("/api/data/project-type-summary")
+def project_type_summary():
+    return get_project_type_summary()
+
 @app.get("/api/data/monthly-summary")
 def monthly_summary():
     return get_monthly_summary()
