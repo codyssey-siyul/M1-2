@@ -266,16 +266,31 @@ async function loadDashboardSummary() {
 
         const yearlyData = await response.json();
 
+        // 대시보드에서 선택한 연도
+        const selectedYear = document.getElementById(
+            "dashboard-year-select"
+        ).value;
+
         let totalValue = 0;
         let totalCount = 0;
 
-        // 연도별 실적을 합산하여 전체 실적 계산
-        Object.values(yearlyData).forEach(function(year) {
-            totalValue += year.total_value;
-            totalCount += year.count;
-        });
+        if (selectedYear === "all") {
+            // 전체 기간 실적 합산
+            Object.values(yearlyData).forEach(function(year) {
+                totalValue += year.total_value;
+                totalCount += year.count;
+            });
+        } else {
+            // 선택한 연도 실적만 계산
+            const yearData = yearlyData[selectedYear];
 
-        // 전체 평균 수주금액 계산
+            if (yearData) {
+                totalValue = yearData.total_value;
+                totalCount = yearData.count;
+            }
+        }
+
+        // 평균 수주금액 계산
         const averageValue = totalCount > 0
             ? Math.round(totalValue / totalCount)
             : null;
@@ -444,7 +459,17 @@ let projectTypeValueChart = null;
 
 async function loadProjectTypeValueChart() {
     try {
-        const response = await fetch("/api/data/project-type-summary");
+        // 대시보드에서 선택한 연도 확인
+        const selectedYear = document.getElementById(
+            "dashboard-year-select"
+        ).value;
+
+        // 선택한 연도에 맞는 API 주소 생성
+        const url = selectedYear === "all"
+            ? "/api/data/project-type-summary"
+            : `/api/data/project-type-summary?year=${selectedYear}`;
+
+        const response = await fetch(url);
 
         if (!response.ok) {
             throw new Error("프로젝트 유형별 실적 조회 실패");
@@ -508,7 +533,17 @@ let projectTypeCountChart = null;
 
 async function loadProjectTypeCountChart() {
     try {
-        const response = await fetch("/api/data/project-type-summary");
+        // 대시보드에서 선택한 연도 확인
+        const selectedYear = document.getElementById(
+            "dashboard-year-select"
+        ).value;
+
+        // 전체 기간이면 기존 API, 특정 연도면 연도 조건 추가
+        const url = selectedYear === "all"
+            ? "/api/data/project-type-summary"
+            : `/api/data/project-type-summary?year=${selectedYear}`;
+
+        const response = await fetch(url);
 
         if (!response.ok) {
             throw new Error("프로젝트 유형별 실적 조회 실패");
@@ -568,3 +603,18 @@ async function loadProjectTypeCountChart() {
 
 // 대시보드 진입 시 프로젝트 유형별 수주건수 그래프 표시
 dashboardButton.addEventListener("click", loadProjectTypeCountChart);
+
+// 대시보드 조회 연도 변경 시 실적 요약 갱신
+document.getElementById("dashboard-year-select").addEventListener(
+    "change",
+    loadDashboardSummary
+);
+
+// 조회 연도 변경 시 프로젝트 유형별 그래프 갱신
+document.getElementById("dashboard-year-select").addEventListener(
+    "change",
+    function() {
+        loadProjectTypeValueChart();
+        loadProjectTypeCountChart();
+    }
+);

@@ -588,46 +588,18 @@ def get_monthly_summary():
     return summary
 
 
-def get_project_type_summary():
+def get_project_type_summary(year=None):
     projects = load_project_data()
     summary = {}
 
     for project in projects:
-        project_type = project["project_type"]
-        value = int(project["value"])
+        # 연도가 선택된 경우 해당 연도 데이터만 집계
+        if year is not None:
+            project_year = str(project["date"])[:4]
 
-        if project_type not in summary:
-            summary[project_type] = {
-                "count": 0,
-                "total_value": 0,
-                "average_value": "해당 없음"
-            }
+            if project_year != str(year):
+                continue
 
-        summary[project_type]["count"] += 1
-        summary[project_type]["total_value"] += value
-
-    for data in summary.values():
-        if data["count"] > 0:
-            data["average_value"] = (
-                data["total_value"] // data["count"]
-            )
-
-    return summary
-
-
-@app.get("/api/data/project-type-summary")
-def project_type_summary():
-    return get_project_type_summary()
-
-@app.get("/api/data/monthly-summary")
-def monthly_summary():
-    return get_monthly_summary()
-
-def get_project_type_summary():
-    projects = load_project_data()
-    summary = {}
-
-    for project in projects:
         project_type = project["project_type"]
         value = int(project["value"])
 
@@ -649,6 +621,11 @@ def get_project_type_summary():
 
     return summary
 
+
 @app.get("/api/data/project-type-summary")
-def project_type_summary():
-    return get_project_type_summary()
+def project_type_summary(year: int | None = None):
+    return get_project_type_summary(year)
+
+@app.get("/api/data/monthly-summary")
+def monthly_summary():
+    return get_monthly_summary()

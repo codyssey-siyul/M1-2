@@ -50,6 +50,19 @@
             <h2>📊 실적 대시보드</h2>
             <p>로봇자동화 SI 프로젝트 수주 실적을 확인할 수 있습니다.</p>
 
+            <!-- 대시보드 전체 조회 연도 선택 -->
+            <div class="dashboard-filter">
+                <label for="dashboard-year-select">조회 기간:</label>
+                <select id="dashboard-year-select">
+                    <option value="all" selected>전체 기간 (2022~2026)</option>
+                    <option value="2026">2026년</option>
+                    <option value="2025">2025년</option>
+                    <option value="2024">2024년</option>
+                    <option value="2023">2023년</option>
+                    <option value="2022">2022년</option>
+                </select>
+            </div>
+
             <!-- 전체 실적 요약 -->
             <div class="dashboard-summary">
                 <div class="summary-card">
@@ -81,11 +94,11 @@
                 <!-- 조회 연도 선택 -->
                 <label for="monthly-year-select">조회 연도:</label>
                 <select id="monthly-year-select">
-                    <option value="2022">2022년</option>
-                    <option value="2023">2023년</option>
-                    <option value="2024">2024년</option>
-                    <option value="2025">2025년</option>
                     <option value="2026" selected>2026년</option>
+                    <option value="2025">2025년</option>
+                    <option value="2024">2024년</option>
+                    <option value="2023">2023년</option>
+                    <option value="2022">2022년</option>
                 </select>
 
                 <canvas id="monthly-chart"></canvas>

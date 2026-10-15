@@ -457,8 +457,8 @@ body {
 /* 그래프 캔버스 크기 */
 .dashboard-chart canvas {
     display: block;
-    width: 100% !important;
-    height: 280px !important;
+    max-width: 100%;
+    max-height: 270px;
 }
 
 
@@ -561,10 +561,10 @@ body {
     font-size: 16px;
 }
 
-/* 그래프 크기 */
+/* 그래프 크기 - Chart.js가 캔버스 크기를 관리 */
 #dashboard-page .dashboard-chart canvas {
-    width: 100% !important;
-    height: 270px !important;
+    display: block;
+    max-width: 100%;
 }
 
 /* ========================================
