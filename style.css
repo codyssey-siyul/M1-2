@@ -425,7 +425,8 @@ body {
 }
 
 /* 실적 대시보드 메뉴 버튼 */
-#dashboard-button {
+#dashboard-button,
+#data-button {
     display: block;
     width: 100%;
     margin-top: 10px;
@@ -441,7 +442,8 @@ body {
     transition: background-color 0.2s;
 }
 
-#dashboard-button:hover {
+#dashboard-button:hover,
+#data-button:hover {
     background-color: #dce5f1;
 }
 
@@ -604,4 +606,67 @@ body {
 /* 숨김 속성 유지: 위의 display:grid보다 우선 적용 */
 #dashboard-page[hidden] {
     display: none;
+}
+
+/* 데이터 관리: 기존 대시보드의 색상·카드 스타일 유지 */
+#data-page { flex: 1; min-width: 0; padding: 30px; }
+#data-page[hidden], #project-table[hidden], #project-cancel[hidden] { display: none; }
+#data-page h2 { margin: 0 0 10px; color: #14243d; font-size: 24px; }
+.page-description, .data-summary-note, .form-help { color: #64748b; font-size: 14px; line-height: 1.6; }
+.page-status { grid-column: 1 / -1; margin: 0 0 18px; line-height: 1.6; color: #41658a; overflow-wrap: anywhere; }
+.page-status:empty { display: none; }
+.page-status[data-kind="error"] { color: #b91c1c; }
+.page-status[data-kind="success"] { color: #236445; }
+.data-summary-note { margin: 6px 0; }
+.data-panel { min-width: 0; margin-top: 24px; padding: 24px; background: white; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04); }
+.data-panel h3 { margin: 0; color: #14243d; font-size: 17px; }
+#project-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.project-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 20px; }
+.project-form-grid label { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: #334155; font-size: 14px; }
+.project-form-grid .memo-field { grid-column: span 2; }
+.project-form-grid input, .project-form-grid textarea { width: 100%; min-width: 0; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #1e293b; font: inherit; }
+.project-form-grid textarea { resize: vertical; }
+.project-form-grid input:focus, .project-form-grid textarea:focus { outline: 2px solid #47658c; outline-offset: 2px; }
+.data-actions, .data-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.data-actions { margin-top: 20px; }
+.data-toolbar { justify-content: space-between; }
+.primary-button, .secondary-button, .delete-project { min-height: 42px; padding: 10px 14px; border-radius: 8px; font: inherit; font-size: 14px; cursor: pointer; }
+.primary-button { background: #47658c; color: white; border: 1px solid #47658c; }
+.primary-button:hover { background: #344b6b; }
+.secondary-button { background: white; color: #344b6b; border: 1px solid #b8c7da; }
+.secondary-button:hover { background: #eef4ff; }
+.delete-project { background: white; color: #b91c1c; border: 1px solid #e6bcbc; }
+.delete-project:hover { background: #fdf0f0; }
+#data-page button:disabled, #project-fields:disabled button { opacity: .6; cursor: not-allowed; }
+.data-table-wrap { overflow-x: auto; }
+#project-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#project-table th, #project-table td { padding: 14px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; }
+#project-table th { color: #64748b; white-space: nowrap; font-weight: 500; }
+#project-table td { overflow-wrap: anywhere; }
+#project-table td:nth-child(1), #project-table td:nth-child(2), #project-table td:nth-child(4) { white-space: nowrap; }
+#project-table td:nth-child(5) { min-width: 140px; max-width: 320px; white-space: pre-wrap; }
+.project-row-actions { display: flex; gap: 8px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 1100px) {
+    #data-page { padding: 20px; }
+    .project-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+    #data-page { padding: 16px 12px; }
+    .data-panel { padding: 16px; }
+    .project-form-grid { grid-template-columns: 1fr; }
+    .project-form-grid .memo-field { grid-column: auto; }
+    #project-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+    #project-table tbody, #project-table tr, #project-table td { display: block; width: 100%; }
+    #project-table tr { padding: 12px 0; border-bottom: 1px solid #dce3ed; }
+    #project-table td { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 8px 0; border: 0; white-space: normal !important; min-width: 0 !important; max-width: none !important; }
+    #project-table td::before { content: attr(data-label); color: #64748b; }
+    .project-row-actions { flex-wrap: wrap; }
+}
+@media (max-width: 480px) {
+    /* 데이터 관리 화면에서만 사이드바를 위로 배치해 폼 너비 확보 */
+    .app-layout.data-view { flex-direction: column; }
+    .data-view #sidebar { width: 100%; border-right: 0; border-bottom: 1px solid #dce3ed; }
+    .data-view #conversation-list { max-height: 140px; overflow-y: auto; }
+    .data-view #sidebar h3 { margin-top: 16px; }
 }

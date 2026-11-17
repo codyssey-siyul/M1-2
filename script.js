@@ -21,6 +21,8 @@ function addMessage(sender, text) {
 
 // 사용자 질문을 AI 서버로 전송
 async function sendMessage() {
+    if (sendButton.disabled) return;
+
     const question = userInput.value.trim();
 
     if (!question) return;
@@ -30,9 +32,10 @@ async function sendMessage() {
 
     sendButton.disabled = true;
     sendButton.textContent = "답변 중...";
+    let failureMessage = "AI 서버에 연결할 수 없습니다.";
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/api/chat", {
+        const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -44,6 +47,10 @@ async function sendMessage() {
         });
 
         if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            failureMessage = typeof errorData?.detail === "string"
+                ? errorData.detail
+                : "질문 또는 대화 정보의 입력 형식과 길이를 확인해 주세요.";
             throw new Error("서버 응답 오류");
         }
 
@@ -56,8 +63,7 @@ async function sendMessage() {
         loadConversations();
 
     } catch (error) {
-        addMessage("시스템", "AI 서버에 연결할 수 없습니다.");
-        console.error(error);
+        addMessage("시스템", failureMessage);
 
     } finally {
         sendButton.disabled = false;
@@ -90,7 +96,7 @@ sendButton.addEventListener("click", sendMessage);
 
 // Enter 키로 전송
 userInput.addEventListener("keydown", function(event) {
-    if (event.key === "Enter") {
+    if (event.key === "Enter" && !event.isComposing) {
         sendMessage();
     }
 });
@@ -211,7 +217,8 @@ async function loadConversation(id) {
 
         const data = await response.json();
 
-        // 현재 대화 ID 변경
+        // 이전 대화를 열면 어느 메뉴에서든 채팅 화면으로 전환
+        showPage("chat");
         conversationId = id;
 
         // 선택한 대화 표시 갱신
@@ -243,28 +250,27 @@ const dashboardButton = document.getElementById("dashboard-button");
 const dashboardPage = document.getElementById("dashboard-page");
 const chatMain = document.querySelector(".chat-main");
 
-// 실적 대시보드 버튼 클릭
-dashboardButton.addEventListener("click", function() {
-    chatMain.hidden = true;
-    dashboardPage.hidden = false;
-});
+function showPage(page) {
+    chatMain.hidden = page !== "chat";
+    dashboardPage.hidden = page !== "dashboard";
+    document.getElementById("data-page").hidden = page !== "data";
+    const layout = document.querySelector(".app-layout");
+    if (page === "data") layout.classList.add("data-view");
+    else layout.classList.remove("data-view");
+}
 
-// 새 채팅 버튼 클릭 시 채팅 화면으로 전환
+dashboardButton.addEventListener("click", function() {
+    showPage("dashboard");
+    refreshDashboard();
+});
 newChatButton.addEventListener("click", function() {
-    dashboardPage.hidden = true;
-    chatMain.hidden = false;
+    if (!sendButton.disabled) showPage("chat");
 });
 
 // 대시보드 전체 실적 요약 불러오기
-async function loadDashboardSummary() {
+async function loadDashboardSummary(yearlyData = null) {
     try {
-        const response = await fetch("/api/data/yearly-summary");
-
-        if (!response.ok) {
-            throw new Error("실적 데이터 조회 실패");
-        }
-
-        const yearlyData = await response.json();
+        if (yearlyData === null) yearlyData = await readApi("/api/data/yearly-summary");
 
         // 대시보드에서 선택한 연도
         const selectedYear = document.getElementById(
@@ -307,26 +313,22 @@ async function loadDashboardSummary() {
                 ? "해당 없음"
                 : averageValue.toLocaleString("ko-KR") + "원";
 
+        return true;
     } catch (error) {
         console.error("대시보드 실적 조회 오류:", error);
+        return false;
     }
 }
 
 // 대시보드 버튼 클릭 시 실적 데이터 불러오기
-dashboardButton.addEventListener("click", loadDashboardSummary);
+
 
 // 연도별 수주금액 그래프
 let yearlyChart = null;
 
-async function loadYearlyChart() {
+async function loadYearlyChart(yearlyData = null) {
     try {
-        const response = await fetch("/api/data/yearly-summary");
-
-        if (!response.ok) {
-            throw new Error("연도별 실적 조회 실패");
-        }
-
-        const yearlyData = await response.json();
+        if (yearlyData === null) yearlyData = await readApi("/api/data/yearly-summary");
 
         // 연도 및 수주금액 추출
         const years = Object.keys(yearlyData).sort();
@@ -368,26 +370,22 @@ async function loadYearlyChart() {
             }
         });
 
+        return true;
     } catch (error) {
         console.error("연도별 그래프 오류:", error);
+        return false;
     }
 }
 
 // 대시보드 클릭 시 연도별 그래프 불러오기
-dashboardButton.addEventListener("click", loadYearlyChart);
+
 
 // 월별 수주금액 추이 그래프
 let monthlyChart = null;
 
-async function loadMonthlyChart() {
+async function loadMonthlyChart(monthlyData = null) {
     try {
-        const response = await fetch("/api/data/monthly-summary");
-
-        if (!response.ok) {
-            throw new Error("월별 실적 조회 실패");
-        }
-
-        const monthlyData = await response.json();
+        if (monthlyData === null) monthlyData = await readApi("/api/data/monthly-summary");
         const selectedYear = document.getElementById("monthly-year-select").value;
 
         // 선택한 연도의 1월~12월 수주금액
@@ -440,24 +438,23 @@ async function loadMonthlyChart() {
             }
         });
 
+        return true;
     } catch (error) {
         console.error("월별 그래프 오류:", error);
+        return false;
     }
 }
 
 // 대시보드 진입 시 월별 그래프 표시
-dashboardButton.addEventListener("click", loadMonthlyChart);
 
-// 조회 연도 변경 시 그래프 갱신
-document.getElementById("monthly-year-select").addEventListener(
-    "change",
-    loadMonthlyChart
-);
+
+// 월별 그래프의 독립 연도 필터 유지
+document.getElementById("monthly-year-select").addEventListener("change", refreshDashboard);
 
 // 프로젝트 유형별 수주금액 그래프
 let projectTypeValueChart = null;
 
-async function loadProjectTypeValueChart() {
+async function loadProjectTypeValueChart(projectData = null) {
     try {
         // 대시보드에서 선택한 연도 확인
         const selectedYear = document.getElementById(
@@ -469,13 +466,7 @@ async function loadProjectTypeValueChart() {
             ? "/api/data/project-type-summary"
             : `/api/data/project-type-summary?year=${selectedYear}`;
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            throw new Error("프로젝트 유형별 실적 조회 실패");
-        }
-
-        const projectData = await response.json();
+        if (projectData === null) projectData = await readApi(url);
 
         // 수주금액이 큰 유형부터 정렬
         const sortedData = Object.entries(projectData).sort(
@@ -520,18 +511,20 @@ async function loadProjectTypeValueChart() {
             }
         });
 
+        return true;
     } catch (error) {
         console.error("프로젝트 유형별 수주금액 그래프 오류:", error);
+        return false;
     }
 }
 
 // 대시보드 진입 시 프로젝트 유형별 수주금액 그래프 표시
-dashboardButton.addEventListener("click", loadProjectTypeValueChart);
+
 
 // 프로젝트 유형별 수주건수 그래프
 let projectTypeCountChart = null;
 
-async function loadProjectTypeCountChart() {
+async function loadProjectTypeCountChart(projectData = null) {
     try {
         // 대시보드에서 선택한 연도 확인
         const selectedYear = document.getElementById(
@@ -543,13 +536,7 @@ async function loadProjectTypeCountChart() {
             ? "/api/data/project-type-summary"
             : `/api/data/project-type-summary?year=${selectedYear}`;
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            throw new Error("프로젝트 유형별 실적 조회 실패");
-        }
-
-        const projectData = await response.json();
+        if (projectData === null) projectData = await readApi(url);
 
         // 수주건수가 많은 유형부터 정렬
         const sortedData = Object.entries(projectData).sort(
@@ -596,25 +583,74 @@ async function loadProjectTypeCountChart() {
             }
         });
 
+        return true;
     } catch (error) {
         console.error("프로젝트 유형별 수주건수 그래프 오류:", error);
+        return false;
     }
 }
 
 // 대시보드 진입 시 프로젝트 유형별 수주건수 그래프 표시
-dashboardButton.addEventListener("click", loadProjectTypeCountChart);
 
-// 대시보드 조회 연도 변경 시 실적 요약 갱신
-document.getElementById("dashboard-year-select").addEventListener(
-    "change",
-    loadDashboardSummary
-);
 
-// 조회 연도 변경 시 프로젝트 유형별 그래프 갱신
-document.getElementById("dashboard-year-select").addEventListener(
-    "change",
-    function() {
-        loadProjectTypeValueChart();
-        loadProjectTypeCountChart();
+document.getElementById("dashboard-year-select").addEventListener("change", refreshDashboard);
+
+async function readApi(url, options) {
+    let response;
+    try {
+        response = await fetch(url, options);
+    } catch {
+        throw new Error("서버에 연결할 수 없습니다. 연결 상태를 확인한 후 새로고침해 주세요.");
     }
-);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        const detail = typeof payload?.detail === "string"
+            ? payload.detail
+            : response.status === 422
+                ? "입력값의 형식과 허용 범위를 확인해 주세요."
+                : "서버 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+        const error = new Error(detail);
+        error.status = response.status;
+        throw error;
+    }
+    if (payload === null) throw new Error("서버 응답을 확인할 수 없습니다. 새로고침해 주세요.");
+    return payload;
+}
+
+let dashboardRequestVersion = 0;
+
+async function refreshDashboard() {
+    const version = ++dashboardRequestVersion;
+    const status = document.getElementById("dashboard-status");
+    status.textContent = "실적을 불러오는 중입니다...";
+    status.dataset.kind = "info";
+    const year = document.getElementById("dashboard-year-select").value;
+    const typeUrl = year === "all" ? "/api/data/project-type-summary"
+        : `/api/data/project-type-summary?year=${encodeURIComponent(year)}`;
+    try {
+        const [yearly, monthly, types] = await Promise.all([
+            readApi("/api/data/yearly-summary"), readApi("/api/data/monthly-summary"), readApi(typeUrl)
+        ]);
+        if (version !== dashboardRequestVersion) return false;
+        const results = await Promise.all([
+            loadDashboardSummary(yearly), loadYearlyChart(yearly), loadMonthlyChart(monthly),
+            loadProjectTypeValueChart(types), loadProjectTypeCountChart(types)
+        ]);
+        if (version !== dashboardRequestVersion) return false;
+        if (results.includes(false)) throw new Error("그래프를 표시하지 못했습니다. 새로고침해 주세요.");
+        status.textContent = Object.keys(yearly).length ? "" : "등록된 수주 데이터가 없습니다. 데이터 관리에서 프로젝트를 추가해 주세요.";
+        return true;
+    } catch (error) {
+        if (version !== dashboardRequestVersion) return false;
+        status.textContent = error.message;
+        status.dataset.kind = "error";
+        for (const id of ["total-order-value", "total-order-count", "average-order-value"]) {
+            document.getElementById(id).textContent = "-";
+        }
+        for (const chart of [yearlyChart, monthlyChart, projectTypeValueChart, projectTypeCountChart]) {
+            if (chart) chart.destroy();
+        }
+        yearlyChart = monthlyChart = projectTypeValueChart = projectTypeCountChart = null;
+        return false;
+    }
+}

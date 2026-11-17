@@ -24,6 +24,9 @@
             <button id="dashboard-button" type="button">
                 📊 실적 대시보드
             </button>
+            <button id="data-button" type="button" aria-controls="data-page">
+                📋 데이터 관리
+            </button>
 
             <h3>이전 대화</h3>
             <div id="conversation-list"></div>
@@ -49,6 +52,7 @@
         <section id="dashboard-page" hidden>
             <h2>📊 실적 대시보드</h2>
             <p>로봇자동화 SI 프로젝트 수주 실적을 확인할 수 있습니다.</p>
+            <p id="dashboard-status" class="page-status" role="status" aria-live="polite"></p>
 
             <!-- 대시보드 전체 조회 연도 선택 -->
             <div class="dashboard-filter">
@@ -116,6 +120,67 @@
             </div>
         </section>
 
+        <section id="data-page" hidden aria-labelledby="data-page-title">
+            <h2 id="data-page-title">📋 데이터 관리</h2>
+            <p class="page-description">수주 프로젝트를 관리하면 실적 요약과 그래프에 반영됩니다.</p>
+            <p id="data-status" class="page-status" role="status" aria-live="polite"></p>
+
+            <div class="dashboard-summary">
+                <div class="summary-card"><h3>총 수주금액</h3><p id="data-total-value">-</p></div>
+                <div class="summary-card"><h3>총 수주건수</h3><p id="data-total-count">-</p></div>
+                <div class="summary-card"><h3>평균 수주금액</h3><p id="data-average-value">-</p></div>
+            </div>
+            <p id="data-period" class="data-summary-note">데이터 기간: -</p>
+            <p id="data-trend" class="data-summary-note">최근 추세: -</p>
+
+            <section class="data-panel" aria-labelledby="project-form-title">
+                <h3 id="project-form-title">새 프로젝트 추가</h3>
+                <p class="form-help">모든 항목을 입력해 주세요. 금액은 원 단위, 작업 기간은 일 단위입니다.</p>
+                <form id="project-form">
+                    <fieldset id="project-fields">
+                        <legend class="visually-hidden">수주 프로젝트 정보</legend>
+                        <div class="project-form-grid">
+                            <label for="project-date">수주일
+                                <input id="project-date" name="date" type="date" min="1900-01-01" max="2100-12-31" required>
+                            </label>
+                            <label for="project-value">수주금액 (원)
+                                <input id="project-value" name="value" type="number" min="1" max="1000000000000000" step="1" inputmode="numeric" required>
+                            </label>
+                            <label for="project-type">프로젝트 유형
+                                <input id="project-type" name="project_type" type="text" maxlength="100" list="project-types" placeholder="예: 로봇 용접 자동화" required>
+                                <datalist id="project-types"></datalist>
+                            </label>
+                            <label for="project-duration">작업 기간 (일)
+                                <input id="project-duration" name="duration_days" type="number" min="1" max="36500" step="1" inputmode="numeric" required>
+                            </label>
+                            <label for="project-memo" class="memo-field">메모
+                                <textarea id="project-memo" name="memo" rows="3" maxlength="2000" placeholder="프로젝트의 주요 내용을 입력하세요" required></textarea>
+                            </label>
+                        </div>
+                        <div class="data-actions">
+                            <button id="project-save" class="primary-button" type="submit">프로젝트 추가</button>
+                            <button id="project-cancel" class="secondary-button" type="button" hidden>수정 취소</button>
+                        </div>
+                    </fieldset>
+                </form>
+            </section>
+
+            <section class="data-panel" aria-labelledby="project-list-title">
+                <div class="data-toolbar">
+                    <h3 id="project-list-title">수주 프로젝트 목록 <span id="data-list-count"></span></h3>
+                    <button id="data-refresh" class="secondary-button" type="button">새로고침</button>
+                </div>
+                <p id="data-list-state" class="form-help" role="status">데이터를 불러오면 목록이 표시됩니다.</p>
+                <div class="data-table-wrap">
+                    <table id="project-table" hidden>
+                        <caption class="visually-hidden">수주 프로젝트 목록과 수정·삭제 작업</caption>
+                        <thead><tr><th scope="col">수주일</th><th scope="col">수주금액</th><th scope="col">프로젝트 유형</th><th scope="col">작업 기간</th><th scope="col">메모</th><th scope="col">관리</th></tr></thead>
+                        <tbody id="project-list"></tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+
     </div>
 
     <!-- 그래프 라이브러리 -->
@@ -123,5 +188,6 @@
 
     <!-- 기존 JavaScript -->
     <script src="script.js"></script>
+    <script src="data-manager.js"></script>
 </body>
 </html>

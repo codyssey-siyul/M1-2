@@ -1,56 +1,179 @@
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
-import csv
+from openai import OpenAI, APIError, APITimeoutError, RateLimitError
+import json
+import re
+from typing import Literal
 from pathlib import Path
-from datetime import datetime
-from fastapi import FastAPI
-from pydantic import BaseModel
-import firebase_admin
-from firebase_admin import credentials, firestore
+from datetime import datetime, date
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, Field, field_validator, model_validator, ValidationError
+from firebase_config import create_firestore_client
+from google.api_core.exceptions import GoogleAPIError, NotFound
+from google.auth.exceptions import GoogleAuthError
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 
 
-CSV_PATH = Path(__file__).resolve().parent / "robot_si_synthetic_2022_2026_revised.csv"
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+MAX_QUESTION_CHARS = 2000
+MAX_MESSAGE_CHARS = 8000
+MAX_CONVERSATION_MESSAGES = 100
+MAX_CONVERSATION_CHARS = 40000
+MAX_AI_INPUT_CHARS = 80000
+
+
+def output_token_limit():
+    try:
+        return max(64, min(3000, int(os.getenv("OPENAI_MAX_COMPLETION_TOKENS", "1200"))))
+    except ValueError:
+        return 1200
+
+
+def validate_document_id(value):
+    if (not isinstance(value, str) or not value.strip()
+            or len(value.encode("utf-8")) > 1500 or "/" in value
+            or value in {".", ".."} or re.fullmatch(r"__.*__", value)):
+        raise ValueError("유효한 문서 ID를 입력해 주세요.")
+    return value
+
+
+def document(collection, id):
+    try:
+        validate_document_id(id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="유효한 문서 ID를 입력해 주세요.") from None
+    return require_db().collection(collection).document(id)
+
+
+def require_db():
+    if db is None:
+        raise HTTPException(status_code=503, detail="Firebase 연결 설정이 필요합니다.")
+    return db
+
 
 def load_project_data():
-    with open(CSV_PATH, mode="r", encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file)
-        return list(reader)
+    """Single source for list, summaries, charts and AI; never fall back to CSV."""
+    docs = require_db().collection("data").stream(timeout=30, retry=None)
+    projects = []
+    for doc in docs:
+        item = doc_to_dict(doc)
+        try:
+            project = ProjectData.model_validate(item).model_dump()
+            datetime.strptime(project["date"], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=503, detail="저장된 실적 데이터 형식을 확인해 주세요."
+            ) from None
+        project["id"] = doc.id
+        projects.append(project)
+    return sorted(projects, key=lambda project: (project["date"], project["id"]))
 
 app = FastAPI()
 
 # 웹페이지 및 CSS, JavaScript 파일 제공
 @app.get("/app")
 def serve_frontend():
-    return FileResponse("index.html")
+    return FileResponse(BASE_DIR / "index.html")
 
 # CSS 파일 제공
 @app.get("/style.css")
 def serve_css():
-    return FileResponse("style.css")
+    return FileResponse(BASE_DIR / "style.css")
 
 # JavaScript 파일 제공
 @app.get("/script.js")
 def serve_javascript():
-    return FileResponse("script.js")
+    return FileResponse(BASE_DIR / "script.js")
 
-load_dotenv()
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_BASE_URL")
-)
+@app.get("/data-manager.js")
+def serve_data_manager():
+    return FileResponse(BASE_DIR / "data-manager.js")
 
-from pathlib import Path
-
-if Path("firebase-service-account.json").is_file():
-    cred = credentials.Certificate("firebase-service-account.json")
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
-else:
+# Create the OpenAI client only when chat is requested.
+client = None
+db_configuration_failed = False
+try:
+    db = create_firestore_client()
+except RuntimeError:
+    # Keep the UI and API available to report a safe 503 on DB requests.
     db = None
-    print("Firebase 인증 파일 없음 - 개발 모드로 실행")
+    db_configuration_failed = True
+
+
+def get_ai_client():
+    global client
+    if client is None:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise HTTPException(status_code=503, detail="OpenAI API 설정이 필요합니다.")
+        try:
+            client = OpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("OPENAI_BASE_URL"),
+                timeout=30.0,
+                max_retries=0,
+            )
+        except Exception:
+            raise HTTPException(status_code=503, detail="OpenAI API 설정을 확인해 주세요.") from None
+    return client
+
+
+@app.exception_handler(GoogleAPIError)
+@app.exception_handler(GoogleAuthError)
+async def firestore_error_handler(request, exc):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Firestore 요청을 처리하지 못했습니다. 연결과 권한을 확인해 주세요."},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request, exc):
+    # Do not echo submitted content, Pydantic input values or exception context.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": list(error["loc"]), "type": error["type"],
+         "msg": "입력값의 형식 또는 허용 범위를 확인해 주세요."}
+        for error in exc.errors()
+    ]})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request, exc):
+    return JSONResponse(status_code=500, content={"detail": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."})
+
+
+def request_ai_answer(messages, *, diagnostic=False):
+    if sum(len(message["content"]) for message in messages) > MAX_AI_INPUT_CHARS:
+        raise HTTPException(status_code=413, detail="AI 입력 데이터가 허용 길이를 초과했습니다.")
+    model = os.getenv("OPENAI_MODEL")
+    if not model or not model.strip():
+        raise HTTPException(status_code=503, detail="OpenAI 모델 설정이 필요합니다.")
+    parameter = os.getenv("OPENAI_TOKEN_LIMIT_PARAMETER", "max_completion_tokens")
+    if parameter not in {"max_completion_tokens", "max_tokens"}:
+        raise HTTPException(status_code=503, detail="OpenAI 출력 제한 설정을 확인해 주세요.")
+    limit = min(output_token_limit(), 64) if diagnostic else output_token_limit()
+    try:
+        response = get_ai_client().chat.completions.create(
+            model=model, messages=messages, **{parameter: limit},
+        )
+    except APITimeoutError:
+        raise HTTPException(status_code=504, detail="AI 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.") from None
+    except RateLimitError:
+        raise HTTPException(status_code=429, detail="AI 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.") from None
+    except APIError:
+        raise HTTPException(status_code=502, detail="AI 서비스 요청을 처리하지 못했습니다.") from None
+    try:
+        answer = response.choices[0].message.content
+        if not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_MESSAGE_CHARS:
+            raise ValueError
+    except (AttributeError, IndexError, TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="AI 서비스에서 유효한 답변을 받지 못했습니다.") from None
+    return answer
+
 
 def doc_to_dict(doc):
     data = doc.to_dict()
@@ -61,24 +184,80 @@ def doc_to_dict(doc):
     return data
 
 class ProjectData(BaseModel):
-    date: str
-    value: int
-    project_type: str
-    duration_days: int
-    memo: str
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="실제 존재하는 YYYY-MM-DD 날짜, 1900~2100년")
+    value: int = Field(gt=0, le=10**15)
+    project_type: str = Field(min_length=1, max_length=100)
+    duration_days: int = Field(ge=1, le=36500)
+    memo: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("date")
+    @classmethod
+    def valid_date(cls, value):
+        parsed = date.fromisoformat(value)
+        if not 1900 <= parsed.year <= 2100:
+            raise ValueError("날짜는 1900~2100년 범위여야 합니다.")
+        return value
+
+    @field_validator("value", "duration_days", mode="before")
+    @classmethod
+    def integer_only(cls, value):
+        # Keep integer strings compatible with CSV fixtures and existing clients.
+        if isinstance(value, bool) or not (isinstance(value, int) or
+                isinstance(value, str) and re.fullmatch(r"[0-9]+", value)):
+            raise ValueError("양의 정수를 입력해 주세요.")
+        return value
+
+    @field_validator("project_type", "memo")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("공백만 입력할 수 없습니다.")
+        return value
 
 class ConversationMessage(BaseModel):
-    role: str
-    content: str
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+    @field_validator("content")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("빈 메시지는 저장할 수 없습니다.")
+        return value
 
 
 class ConversationCreate(BaseModel):
-    title: str
-    messages: list[ConversationMessage]
+    title: str = Field(min_length=1, max_length=100)
+    messages: list[ConversationMessage] = Field(min_length=1, max_length=MAX_CONVERSATION_MESSAGES)
+
+    @field_validator("title")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("대화 제목을 입력해 주세요.")
+        return value
+
+    @model_validator(mode="after")
+    def total_length(self):
+        if sum(len(message.content) for message in self.messages) > MAX_CONVERSATION_CHARS:
+            raise ValueError("대화 전체 길이가 한도를 초과했습니다.")
+        return self
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     conversation_id: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("질문을 입력해 주세요.")
+        return value
+
+    @field_validator("conversation_id")
+    @classmethod
+    def valid_id(cls, value):
+        return validate_document_id(value) if value is not None else None
 
 @app.get("/")
 def read_root():
@@ -86,9 +265,9 @@ def read_root():
 
 @app.post("/api/data")
 def create_data(project: ProjectData):
-    doc_ref = db.collection("data").document()
+    doc_ref = require_db().collection("data").document()
 
-    doc_ref.set(project.model_dump())
+    doc_ref.set(project.model_dump(), timeout=15, retry=None)
 
     return {
         "message": "프로젝트 데이터가 추가되었습니다.",
@@ -97,14 +276,7 @@ def create_data(project: ProjectData):
 
 @app.get("/api/data")
 def get_data():
-    docs = db.collection("data").stream()
-
-    result = []
-
-    for doc in docs:
-        item = doc_to_dict(doc)
-        item["id"] = doc.id
-        result.append(item)
+    result = load_project_data()
 
     return {
         "count": len(result),
@@ -113,15 +285,16 @@ def get_data():
 
 @app.put("/api/data/{id}")
 def update_data(id: str, project: ProjectData):
-    doc_ref = db.collection("data").document(id)
-    doc = doc_ref.get()
+    doc_ref = document("data", id)
+    doc = doc_ref.get(timeout=15, retry=None)
 
     if not doc.exists:
-        return {
-            "message": "해당 프로젝트 데이터를 찾을 수 없습니다."
-        }
+        raise HTTPException(status_code=404, detail="해당 프로젝트 데이터를 찾을 수 없습니다.")
 
-    doc_ref.update(project.model_dump())
+    try:
+        doc_ref.update(project.model_dump(), timeout=15, retry=None)
+    except NotFound:
+        raise HTTPException(status_code=404, detail="해당 프로젝트 데이터를 찾을 수 없습니다.") from None
 
     return {
         "message": "프로젝트 데이터가 수정되었습니다.",
@@ -130,15 +303,13 @@ def update_data(id: str, project: ProjectData):
 
 @app.delete("/api/data/{id}")
 def delete_data(id: str):
-    doc_ref = db.collection("data").document(id)
-    doc = doc_ref.get()
+    doc_ref = document("data", id)
+    doc = doc_ref.get(timeout=15, retry=None)
 
     if not doc.exists:
-        return {
-            "message": "해당 프로젝트 데이터를 찾을 수 없습니다."
-        }
+        raise HTTPException(status_code=404, detail="해당 프로젝트 데이터를 찾을 수 없습니다.")
 
-    doc_ref.delete()
+    doc_ref.delete(timeout=15, retry=None)
 
     return {
         "message": "프로젝트 데이터가 삭제되었습니다.",
@@ -147,9 +318,12 @@ def delete_data(id: str):
 
 @app.get("/api/data/summary")
 def get_data_summary():
-    docs = list(db.collection("data").stream())
+    return build_data_summary(load_project_data())
 
-    if not docs:
+
+def build_data_summary(projects):
+    items = sorted(projects, key=lambda item: item["date"])
+    if not items:
         return {
             "period": None,
             "count": 0,
@@ -160,9 +334,6 @@ def get_data_summary():
             "monthly_summary": [],
             "recent_trend": "데이터 없음"
         }
-
-    items = [doc_to_dict(doc) for doc in docs]
-    items.sort(key=lambda x: x["date"])
 
     values = [item["value"] for item in items]
 
@@ -273,17 +444,25 @@ conversations = {}
 
 # 대화 기록 저장 (Firebase 연결 시 영구 저장)
 def save_conversation(conversation_id, conversation_data):
+    if db_configuration_failed:
+        require_db()
     if db is not None:
-        db.collection("conversations").document(conversation_id).set(
-            conversation_data
+        document("conversations", conversation_id).set(
+            conversation_data, timeout=15, retry=None,
         )
     else:
         conversations[conversation_id] = conversation_data
 
 # 대화 기록 1건 조회
 def load_conversation(conversation_id):
+    try:
+        validate_document_id(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="유효한 문서 ID를 입력해 주세요.") from None
+    if db_configuration_failed:
+        require_db()
     if db is not None:
-        doc = db.collection("conversations").document(conversation_id).get()
+        doc = document("conversations", conversation_id).get(timeout=15, retry=None)
 
         if doc.exists:
             return doc.to_dict()
@@ -293,8 +472,10 @@ def load_conversation(conversation_id):
 
 # 전체 대화 기록 조회
 def load_all_conversations():
+    if db_configuration_failed:
+        require_db()
     if db is not None:
-        docs = db.collection("conversations").stream()
+        docs = db.collection("conversations").stream(timeout=30, retry=None)
         return [doc.to_dict() for doc in docs]
 
     return list(conversations.values())
@@ -329,7 +510,6 @@ def get_conversations():
         "conversations": conversation_list
     }
 
-from fastapi import HTTPException
 
 
 @app.get("/api/conversations/{conversation_id}")
@@ -355,7 +535,7 @@ def delete_conversation(conversation_id: str):
         )
 
     if db is not None:
-        db.collection("conversations").document(conversation_id).delete()
+        document("conversations", conversation_id).delete(timeout=15, retry=None)
     else:
         del conversations[conversation_id]
 
@@ -392,18 +572,17 @@ def update_conversation(
 
 @app.get("/api/chat/test")
 def test_chat():
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL"),
-        messages=[
+    answer = request_ai_answer(
+        [
             {
                 "role": "user",
                 "content": "안녕하세요? 한 문장으로 자기소개해 주세요."
             }
-        ]
+        ], diagnostic=True,
     )
 
     return {
-        "message": response.choices[0].message.content
+        "message": answer
     }
 
 @app.post("/api/chat")
@@ -419,7 +598,11 @@ def chat(request: ChatRequest):
             )
 
         conversation_id = request.conversation_id
-        messages = conversation_data["messages"].copy()
+        try:
+            stored = ConversationCreate.model_validate(conversation_data)
+        except ValidationError:
+            raise HTTPException(status_code=503, detail="저장된 대화 형식을 확인해 주세요.") from None
+        messages = [message.model_dump() for message in stored.messages]
 
     # 새로운 대화 시작
     else:
@@ -432,27 +615,31 @@ def chat(request: ChatRequest):
         "content": request.message
     })
 
-    # CSV 실적 데이터를 AI에게 전달
-    project_context = get_project_context()
+    # Reserve room for the assistant reply before any paid request is made.
+    if (len(messages) + 1 > MAX_CONVERSATION_MESSAGES or
+            sum(len(message["content"]) for message in messages) + MAX_MESSAGE_CHARS > MAX_CONVERSATION_CHARS):
+        raise HTTPException(status_code=413, detail="대화 길이 한도에 도달했습니다. 새 채팅을 시작해 주세요.")
 
-    # Python으로 계산한 연도별 실적
-    yearly_summary = get_yearly_summary()
-
-    # Python으로 계산한 월별 실적
-    monthly_summary = get_monthly_summary()
-
-    # Python으로 계산한 프로젝트 유형별 실적
-    project_type_summary = get_project_type_summary()
+    # Read once so every AI summary uses the same Firestore snapshot.
+    projects = load_project_data()
+    data_summary = build_data_summary(projects)
+    project_context = get_project_context(projects)
+    yearly_summary = get_yearly_summary(projects)
+    monthly_summary = get_monthly_summary(projects)
+    project_type_summary = get_project_type_summary(projects=projects)
 
     ai_messages = [
         {
             "role": "system",
             "content": (
                 "당신은 로봇자동화 SI 프로젝트 실적 분석 AI 비서입니다.\n"
-                "다음 CSV 데이터를 근거로 사용자의 질문에 답변하세요.\n"
+                "다음 Firestore 실적 데이터와 요약을 근거로 사용자의 질문에 답변하세요.\n"
                 "데이터에 없는 수치나 사실은 만들어내지 마세요.\n"
                 "금액 계산과 기간별 집계는 정확하게 수행하세요.\n\n"
-                + project_context
+                + "최근 추세는 마지막 데이터 월 기준이며 현재 날짜 기준이 아닙니다.\n"
+                + "데이터 요약 (/api/data/summary와 동일한 계산):\n"
+                + json.dumps(data_summary, ensure_ascii=False)
+                + "\n\n" + project_context
                 + "\n\nPython으로 계산한 정확한 연도별 집계 결과:\n"
                 + str(yearly_summary)
                 + "\n\nPython으로 계산한 정확한 월별 집계 결과:\n"
@@ -464,12 +651,7 @@ def chat(request: ChatRequest):
     ] + messages
 
     # 실제 AI 답변 생성
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL"),
-        messages=ai_messages
-    )
-
-    answer = response.choices[0].message.content or ""
+    answer = request_ai_answer(ai_messages)
 
     # AI 답변 추가
     messages.append({
@@ -481,7 +663,7 @@ def chat(request: ChatRequest):
     if request.conversation_id is None:
         conversation_data = {
             "id": conversation_id,
-            "title": request.message[:30],
+            "title": request.message.strip()[:30],
             "messages": messages,
             "created_at": datetime.now().isoformat()
         }
@@ -501,15 +683,19 @@ def test_csv_data():
 
     return {
         "total_count": len(projects),
-        "sample": projects[:2]
+        "sample": [
+            {key: str(value) for key, value in project.items() if key != "id"}
+            for project in projects[:2]
+        ]
     }
 
-def get_project_context():
-    projects = load_project_data()
+def get_project_context(projects=None):
+    if projects is None:
+        projects = load_project_data()
 
     lines = [
-        "다음은 2022~2026년 로봇자동화 SI 프로젝트의 실제 분석용 데이터입니다.",
-        "금액 단위는 원이며, CSV에 없는 정보는 추측하지 마세요.",
+        "다음은 Firestore에 저장된 로봇자동화 SI 프로젝트 분석용 데이터입니다.",
+        "금액 단위는 원이며, 제공된 데이터에 없는 정보는 추측하지 마세요.",
         "수주가 없는 달은 건수와 합계가 0이고, 평균은 '해당 없음'입니다.",
         "프로젝트 실적 데이터:"
     ]
@@ -525,8 +711,9 @@ def get_project_context():
 
     return "\n".join(lines)
 
-def get_yearly_summary():
-    projects = load_project_data()
+def get_yearly_summary(projects=None):
+    if projects is None:
+        projects = load_project_data()
     summary = {}
 
     for project in projects:
@@ -555,12 +742,14 @@ def get_yearly_summary():
 def yearly_summary():
     return get_yearly_summary()
 
-def get_monthly_summary():
-    projects = load_project_data()
+def get_monthly_summary(projects=None):
+    if projects is None:
+        projects = load_project_data()
     summary = {}
 
-    # 2022년 1월 ~ 2026년 12월 초기화
-    for year in range(2022, 2027):
+    # Preserve the existing 60-month range, extending it for new data years.
+    years = [int(project["date"][:4]) for project in projects]
+    for year in range(min([2022] + years), max([2026] + years) + 1):
         for month in range(1, 13):
             key = f"{year}-{month:02d}"
             summary[key] = {
@@ -588,8 +777,9 @@ def get_monthly_summary():
     return summary
 
 
-def get_project_type_summary(year=None):
-    projects = load_project_data()
+def get_project_type_summary(year=None, projects=None):
+    if projects is None:
+        projects = load_project_data()
     summary = {}
 
     for project in projects:
