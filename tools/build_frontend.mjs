@@ -25,7 +25,12 @@ const config = {
     ],
     headers: [
         { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "no-store" }] },
-        { source: "/:path*", headers: [{ key: "X-Content-Type-Options", value: "nosniff" }, { key: "Referrer-Policy", value: "same-origin" }] }
+        { source: "/:path*", headers: [
+            { key: "X-Content-Type-Options", value: "nosniff" },
+            { key: "Referrer-Policy", value: "same-origin" },
+            { key: "X-Frame-Options", value: "DENY" },
+            { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" }
+        ] }
     ]
 };
 // Vercel routing config must exist before its build starts; prepare this file
@@ -38,6 +43,26 @@ if (process.argv.includes("--configure")) {
     const existing = JSON.parse(await readFile(filename, "utf8"));
     if (existing.rewrites?.[0]?.destination !== config.rewrites[0].destination) {
         throw new Error("Prepare vercel.json with --configure for the selected BACKEND_ORIGIN before deploying");
+    }
+    for (const expected of config.rewrites) {
+        if (!existing.rewrites.some(rule => rule.source === expected.source && rule.destination === expected.destination)) {
+            throw new Error("Required API/app rewrite is missing or incorrect; prepare vercel.json with --configure");
+        }
+    }
+    for (const rule of existing.headers || []) {
+        if (!Array.isArray(rule.headers) || rule.headers.some(header =>
+            typeof header.key !== "string" || !header.key.trim() ||
+            typeof header.value !== "string" || !header.value.trim())) {
+            throw new Error("Security header keys and values must not be empty");
+        }
+    }
+    for (const expected of config.headers) {
+        for (const header of expected.headers) {
+            if (!(existing.headers || []).some(rule => rule.source === expected.source &&
+                rule.headers.some(item => item.key.toLowerCase() === header.key.toLowerCase() && item.value === header.value))) {
+                throw new Error("Required security/cache header is missing or incorrect; prepare vercel.json with --configure");
+            }
+        }
     }
 }
 console.log("Frontend output prepared from the five-file allowlist.");

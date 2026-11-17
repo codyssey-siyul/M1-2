@@ -52,6 +52,39 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn("upload_data", config)
         self.assertIn("sync: false", config)
 
+    def test_actual_backend_build_and_security_header_validation(self):
+        with tempfile.TemporaryDirectory(prefix="m12-routing-test-") as folder:
+            root = Path(folder)
+            (root / "tools").mkdir()
+            shutil.copy(ROOT / "tools/build_frontend.mjs", root / "tools/build_frontend.mjs")
+            original = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+            self.assertEqual(original["rewrites"][0]["destination"], "https://m1-2-8d9s.onrender.com/api/:path*")
+            for file in PUBLIC:
+                shutil.copy(ROOT / file, root / file)
+            env = dict(os.environ, BACKEND_ORIGIN="https://m1-2-8d9s.onrender.com")
+
+            def build(config):
+                (root / "vercel.json").write_text(json.dumps(config), encoding="utf-8")
+                return subprocess.run(["node", "tools/build_frontend.mjs"], cwd=root, env=env, capture_output=True)
+
+            self.assertEqual(build(original).returncode, 0)
+            for index in range(len(original["headers"])):
+                broken = json.loads(json.dumps(original))
+                broken["headers"][index]["headers"][0]["value"] = ""
+                self.assertNotEqual(build(broken).returncode, 0)
+            missing_cache = json.loads(json.dumps(original))
+            missing_cache["headers"] = missing_cache["headers"][1:]
+            self.assertNotEqual(build(missing_cache).returncode, 0)
+            missing_proxy = json.loads(json.dumps(original))
+            missing_proxy["rewrites"][0]["source"] = "/wrong/:path*"
+            self.assertNotEqual(build(missing_proxy).returncode, 0)
+            # Regenerating configuration must preserve these protections too.
+            prepared = subprocess.run(["node", "tools/build_frontend.mjs", "--configure"], cwd=root, env=env, capture_output=True)
+            self.assertEqual(prepared.returncode, 0)
+            generated = json.loads((root / "vercel.json").read_text())
+            self.assertEqual(generated["headers"], original["headers"])
+            self.assertEqual(generated["rewrites"], original["rewrites"])
+
 
 if __name__ == "__main__":
     unittest.main()

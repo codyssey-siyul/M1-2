@@ -4,11 +4,16 @@
   "buildCommand": "node tools/build_frontend.mjs",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://replace-with-approved-backend.onrender.com/api/:path*" },
+    { "source": "/api/:path*", "destination": "https://m1-2-8d9s.onrender.com/api/:path*" },
     { "source": "/app", "destination": "/index.html" }
   ],
   "headers": [
     { "source": "/api/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
-    { "source": "/:path*", "headers": [{ "key": "X-Content-Type-Options", "value": "nosniff" }, { "key": "Referrer-Policy", "value": "same-origin" }] }
+    { "source": "/:path*", "headers": [
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "same-origin" },
+      { "key": "X-Frame-Options", "value": "DENY" },
+      { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+    ] }
   ]
 }

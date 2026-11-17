@@ -79,10 +79,10 @@ FastAPI·Firestore·OpenAI와 HTML/CSS/JavaScript·Chart.js로 구성한 과제 
 
 브라우저의 `/api/*`는 Vercel rewrite를 거쳐 Render로 전달된다. 쿠키·CSRF·본문·응답 Set-Cookie가 실제 배포에서 보존되는지 확인해야 한다. Render 직접 요청도 동일 인증을 요구한다.
 
-`vercel.json`은 정적 설정이라 빌드 중 환경변수 문자열 치환에 의존하지 않는다. 현재 주소는 자리표시자이며 **실제 Render 주소가 정해진 뒤 아래 명령으로 설정을 준비해야 한다.** 이 명령은 로컬 파일 준비일 뿐 배포하지 않는다.
+`vercel.json`은 정적 설정이라 빌드 중 환경변수 문자열 치환에 의존하지 않는다. 현재 API 프록시는 `https://m1-2-8d9s.onrender.com`으로 설정되어 있다. **Vercel의 `BACKEND_ORIGIN`도 같은 주소로 설정해야 한다.** 백엔드 주소를 변경할 때는 아래 명령으로 설정을 다시 준비한다. 이 명령은 로컬 파일 준비일 뿐 배포하지 않는다.
 
 ```powershell
-$env:BACKEND_ORIGIN="https://승인한-백엔드.onrender.com"
+$env:BACKEND_ORIGIN="https://m1-2-8d9s.onrender.com"
 node tools/build_frontend.mjs --configure
 ```
 
