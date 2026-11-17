@@ -13,6 +13,8 @@ function element() {
             (this.listeners[name] ||= []).push(listener);
         },
         focus() {},
+        set innerHTML(value) { if (value === "") this.children = []; },
+        replaceChildren() { this.children = []; },
     };
 }
 
@@ -24,10 +26,11 @@ async function run() {
     };
     let calls = 0;
     let respond;
+    const events = {};
     const context = vm.createContext({
         console,
         document: {
-            addEventListener() {},
+            addEventListener(name, listener) { events[name] = listener; },
             getElementById: getNode,
             querySelector: getNode,
             querySelectorAll: () => [],
@@ -36,6 +39,12 @@ async function run() {
         fetch: async url => {
             if (url === "/api/conversations") {
                 return { ok: true, json: async () => ({ conversations: [] }) };
+            }
+            if (url === "/api/conversations/saved") {
+                return { ok: true, json: async () => ({ messages: [
+                    { role: "user", content: "저장된 질문" },
+                    { role: "assistant", content: "저장된 답변" },
+                ] }) };
             }
             calls++;
             return new Promise(resolve => { respond = resolve; });
@@ -46,6 +55,21 @@ async function run() {
     const input = getNode("user-input");
     const send = getNode("send-button");
     const chat = getNode("chat-box");
+    // Login event and restored-session readiness must initialize exactly once.
+    events["m1-authenticated"]();
+    await Promise.resolve();
+    assert.equal(chat.children.length, 1);
+    assert.equal(chat.children[0].textContent, "AI 비서: 안녕하세요! 무엇이 궁금하신가요?");
+    await context.loadConversation("saved");
+    events["m1-authenticated"]();
+    assert.deepEqual(chat.children.map(node => node.textContent), ["나: 저장된 질문", "AI 비서: 저장된 답변"]);
+    for (const listener of getNode("new-chat-button").listeners.click) listener();
+    assert.equal(chat.children.length, 1);
+    assert.equal(chat.children[0].textContent, "AI 비서: 안녕하세요! 무엇이 궁금하신가요?");
+    events["m1-locked"]();
+    assert.equal(chat.children.length, 0);
+    events["m1-authenticated"]();
+    assert.equal(chat.children.length, 1);
     input.value = "질문";
     const pending = context.sendMessage();
     assert.equal(send.disabled, true);

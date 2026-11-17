@@ -243,8 +243,14 @@ async function loadConversation(id) {
 }
 
 // Business reads start only after the session check/login has succeeded.
-Auth.ready.then(ok => { if (ok) loadConversations(); });
-document.addEventListener("m1-authenticated", () => loadConversations());
+function initializeChatView() {
+    if (conversationId === null && chatBox.children.length === 0) {
+        addMessage("AI 비서", "안녕하세요! 무엇이 궁금하신가요?");
+    }
+    loadConversations();
+}
+Auth.ready.then(ok => { if (ok) initializeChatView(); });
+document.addEventListener("m1-authenticated", initializeChatView);
 document.addEventListener("m1-locked", () => {
     conversationId = null;
     userInput.value = "";
