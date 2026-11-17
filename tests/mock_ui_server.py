@@ -17,6 +17,14 @@ import uvicorn
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from test_data_integration import main, Database
+from auth import SecurityService
+from auth_store import MemorySecurityStore
+from security_helpers import TEST_CONFIG
+from dataclasses import replace
+
+main.app.state.security = SecurityService(
+    replace(TEST_CONFIG, origins=("http://127.0.0.1:8765",)), MemorySecurityStore()
+)
 
 main.db = Database({
     "preview_001": {"date": "2026-09-08", "value": 180000000, "project_type": "로봇 용접 자동화", "duration_days": 90, "memo": "모의 프로젝트: 용접 공정 자동화 구축"},
@@ -28,7 +36,7 @@ main.client.chat.completions.create.return_value = SimpleNamespace(
     choices=[SimpleNamespace(message=SimpleNamespace(content="모의 테스트 답변입니다. 실제 GPT는 호출하지 않았습니다."))]
 )
 os.environ["OPENAI_MODEL"] = "mock-ui-only"
-main.db.collection("conversations").items["preview_talk"] = {
+main.db.collection("evaluation_conversations").items["preview_talk"] = {
     "id": "preview_talk", "title": "수주 실적 확인 (모의 대화)", "created_at": "2026-11-17T09:00:00",
     "messages": [{"role": "user", "content": "총 수주금액을 알려줘"}, {"role": "assistant", "content": "모의 데이터 3건의 총 수주금액은 380,000,000원입니다."}],
 }

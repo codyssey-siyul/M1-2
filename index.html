@@ -12,9 +12,20 @@
         <p class="chat-description">
             프로젝트 수주 실적을 AI에게 질문해 보세요.
         </p>
+        <div class="account-bar"><span id="account-name"></span><button id="logout-button" class="secondary-button" type="button" hidden>로그아웃</button></div>
     </header>
 
-    <div class="app-layout">
+    <section id="login-page" class="data-panel" aria-labelledby="login-title">
+        <h2 id="login-title">평가 계정 로그인</h2>
+        <p class="form-help">안내받은 공통 계정으로 로그인해 주세요. 기존 120건은 보호되며 새 평가용 프로젝트를 관리할 수 있습니다.</p>
+        <form id="login-form" class="project-form-grid">
+            <label for="login-username">아이디<input id="login-username" autocomplete="username" maxlength="100" required></label>
+            <label for="login-password">비밀번호<input id="login-password" type="password" autocomplete="current-password" maxlength="256" required></label>
+            <button id="login-button" class="primary-button" type="submit">로그인</button>
+        </form>
+        <p id="login-status" class="page-status" role="status" aria-live="polite"></p>
+    </section>
+    <div class="app-layout" hidden>
 
         <!-- 왼쪽 사이드바 -->
         <aside id="sidebar">
@@ -122,7 +133,7 @@
 
         <section id="data-page" hidden aria-labelledby="data-page-title">
             <h2 id="data-page-title">📋 데이터 관리</h2>
-            <p class="page-description">수주 프로젝트를 관리하면 실적 요약과 그래프에 반영됩니다.</p>
+            <p class="page-description">기존 120건은 읽기 전용입니다. 새 평가용 프로젝트의 변경 내용은 실적 요약과 그래프에 반영됩니다. 평가 계정은 데이터를 공유합니다.</p>
             <p id="data-status" class="page-status" role="status" aria-live="polite"></p>
 
             <div class="dashboard-summary">
@@ -187,6 +198,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
 
     <!-- 기존 JavaScript -->
+    <script src="auth-client.js"></script>
     <script src="script.js"></script>
     <script src="data-manager.js"></script>
 </body>

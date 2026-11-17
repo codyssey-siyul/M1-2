@@ -31,6 +31,7 @@ function resetProjectForm() {
 
 function editProject(project) {
     if (dataBusy) return;
+    if (project.read_only) { setDataStatus("기존 실적 데이터는 읽기 전용입니다.", "error"); return; }
     editingProjectId = project.id;
     for (const [id, key] of [["project-date", "date"], ["project-value", "value"],
         ["project-type", "project_type"], ["project-duration", "duration_days"], ["project-memo", "memo"]]) {
@@ -68,6 +69,15 @@ function renderManagedList(projects) {
         actionsCell.dataset.label = "관리";
         const actions = document.createElement("div");
         actions.className = "project-row-actions";
+        if (project.read_only) {
+            const note = document.createElement("span");
+            note.className = "readonly-note";
+            note.textContent = "원본 · 읽기 전용";
+            actionsCell.appendChild(note);
+            row.appendChild(actionsCell);
+            list.appendChild(row);
+            continue;
+        }
         const edit = document.createElement("button");
         edit.type = "button";
         edit.className = "secondary-button";
@@ -177,7 +187,9 @@ function projectFormData() {
 }
 
 async function refreshAfterDataChange(message) {
-    const [listOk, dashboardOk] = await Promise.all([loadManagedData(), refreshDashboard()]);
+    // Rebuild the list/summary and year options before drawing the dashboard.
+    const listOk = await loadManagedData();
+    const dashboardOk = await refreshDashboard();
     setDataStatus(listOk && dashboardOk ? message
         : `${message} 일부 화면을 갱신하지 못했습니다. 같은 작업을 반복하지 말고 새로고침해 주세요.`,
     listOk && dashboardOk ? "success" : "error");
@@ -212,6 +224,7 @@ async function submitProject(event) {
 
 async function deleteProject(project) {
     if (dataBusy) return;
+    if (project.read_only) { setDataStatus("기존 실적 데이터는 삭제할 수 없습니다.", "error"); return; }
     if (!confirm(`${project.date} / ${project.project_type} / ${Number(project.value).toLocaleString("ko-KR")}원\n이 프로젝트를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.`)) return;
     ++dataRequestVersion;
     setDataBusy(true);
@@ -237,10 +250,23 @@ document.getElementById("data-button").addEventListener("click", () => {
 });
 document.getElementById("data-refresh").addEventListener("click", async () => {
     if (dataBusy) return;
-    const [listOk, dashboardOk] = await Promise.all([loadManagedData(), refreshDashboard()]);
+    const listOk = await loadManagedData();
+    const dashboardOk = await refreshDashboard();
     if (listOk && !dashboardOk) setDataStatus("목록을 갱신했습니다. 그래프 갱신에 실패했습니다. 다시 새로고침해 주세요.", "error");
 });
 document.getElementById("project-cancel").addEventListener("click", () => {
     if (!dataBusy) { resetProjectForm(); setDataStatus("수정을 취소했습니다."); }
 });
 projectForm.addEventListener("submit", submitProject);
+document.addEventListener("m1-locked", () => {
+    ++dataRequestVersion;
+    managedProjects = [];
+    resetProjectForm();
+    renderManagedList([]);
+    for (const id of ["data-total-value", "data-total-count", "data-average-value"]) {
+        document.getElementById(id).textContent = "-";
+    }
+    document.getElementById("data-period").textContent = "데이터 기간: -";
+    document.getElementById("data-trend").textContent = "최근 추세: -";
+    setDataStatus("");
+});

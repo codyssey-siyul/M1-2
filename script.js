@@ -35,7 +35,7 @@ async function sendMessage() {
     let failureMessage = "AI 서버에 연결할 수 없습니다.";
 
     try {
-        const response = await fetch("/api/chat", {
+        const response = await Auth.fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -104,7 +104,7 @@ userInput.addEventListener("keydown", function(event) {
 // 이전 대화 목록 불러오기
 async function loadConversations() {
     try {
-        const response = await fetch("/api/conversations");
+        const response = await Auth.fetch("/api/conversations");
 
         if (!response.ok) {
             throw new Error("대화 목록 조회 실패");
@@ -161,7 +161,7 @@ async function loadConversations() {
                 deleteButton.disabled = true;
 
                 try {
-                    const response = await fetch(
+                    const response = await Auth.fetch(
                         `/api/conversations/${encodeURIComponent(conversation.id)}`,
                         {
                             method: "DELETE"
@@ -207,7 +207,7 @@ async function loadConversation(id) {
     if (sendButton.disabled) return;
 
     try {
-        const response = await fetch(
+        const response = await Auth.fetch(
             `/api/conversations/${encodeURIComponent(id)}`
         );
 
@@ -242,8 +242,24 @@ async function loadConversation(id) {
     }
 }
 
-// 웹페이지 시작 시 이전 대화 목록 불러오기
-loadConversations();
+// Business reads start only after the session check/login has succeeded.
+Auth.ready.then(ok => { if (ok) loadConversations(); });
+document.addEventListener("m1-authenticated", () => loadConversations());
+document.addEventListener("m1-locked", () => {
+    conversationId = null;
+    userInput.value = "";
+    ++dashboardRequestVersion;
+    chatBox.replaceChildren();
+    conversationList.replaceChildren();
+    for (const chart of [yearlyChart, monthlyChart, projectTypeValueChart, projectTypeCountChart]) {
+        if (chart) chart.destroy();
+    }
+    yearlyChart = monthlyChart = projectTypeValueChart = projectTypeCountChart = null;
+    for (const id of ["total-order-value", "total-order-count", "average-order-value"]) {
+        document.getElementById(id).textContent = "-";
+    }
+    showPage("chat");
+});
 
 // 채팅 화면과 대시보드 화면 전환
 const dashboardButton = document.getElementById("dashboard-button");
@@ -595,10 +611,25 @@ async function loadProjectTypeCountChart(projectData = null) {
 
 document.getElementById("dashboard-year-select").addEventListener("change", refreshDashboard);
 
-async function readApi(url, options) {
+// Every authenticated read also updates the same Firestore session document.
+// Serialize analytics reads so a UI refresh does not create five competing
+// session transactions. Mutations/chat are never retried or queued here.
+let dataReadQueue = Promise.resolve();
+
+function readApi(url, options) {
+    const method = (options?.method || "GET").toUpperCase();
+    if (method === "GET" && (url === "/api/data" || url.startsWith("/api/data/"))) {
+        const pending = dataReadQueue.then(() => performApiRequest(url, options));
+        dataReadQueue = pending.then(() => undefined, () => undefined);
+        return pending;
+    }
+    return performApiRequest(url, options);
+}
+
+async function performApiRequest(url, options) {
     let response;
     try {
-        response = await fetch(url, options);
+        response = await Auth.fetch(url, options);
     } catch {
         throw new Error("서버에 연결할 수 없습니다. 연결 상태를 확인한 후 새로고침해 주세요.");
     }

@@ -29,7 +29,7 @@ class Element {
     reportValidity() { return true; }
 }
 
-function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 100000000, project_type: "로봇 설치", duration_days: 30, memo: "모의 프로젝트" }]) {
+function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 100000000, project_type: "로봇 설치", duration_days: 30, memo: "모의 프로젝트" }], settings = {}) {
     const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
     const nodes = new Map([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element("div", match[1])]));
     nodes.set(".chat-main", new Element());
@@ -44,6 +44,8 @@ function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 1000
     const charts = new Map();
     const replies = new Map();
     const failures = new Map();
+    let activeReads = 0;
+    let maxActiveReads = 0;
     let confirmResult = false;
     const confirmations = [];
     function yearly() {
@@ -55,7 +57,7 @@ function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 1000
         return result;
     }
     const response = (payload, status = 200) => ({ ok: status < 400, status, json: async () => structuredClone(payload) });
-    async function fetch(url, options = {}) {
+    async function fetchResponse(url, options = {}) {
         assert.ok(url.startsWith("/"), "All UI API requests must remain on the mock origin");
         const method = options.method || "GET";
         calls.push({ url, method, body: options.body && JSON.parse(options.body) });
@@ -100,8 +102,26 @@ function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 1000
         }
         throw new Error(`Unhandled mock request ${key}`);
     }
+    async function fetch(url, options = {}) {
+        const isDataRead = (options.method || "GET") === "GET" && url.startsWith("/api/data");
+        if (!isDataRead || settings.maxDataReads === undefined) return fetchResponse(url, options);
+        ++activeReads;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        const exceedsBudget = activeReads > settings.maxDataReads;
+        try {
+            // Overlap real script requests deterministically. The mock returns the
+            // same safe 503 used for exhausted session transaction retries.
+            await new Promise(setImmediate);
+            if (exceedsBudget) {
+                calls.push({ url, method: "GET" });
+                return response({ detail: "인증 저장소에 연결할 수 없습니다." }, 503);
+            }
+            return await fetchResponse(url, options);
+        } finally { --activeReads; }
+    }
     const context = vm.createContext({
         document: {
+            addEventListener() {},
             getElementById: node, querySelector: node,
             querySelectorAll(selector) {
                 if (selector !== "#project-list button") return [];
@@ -118,16 +138,44 @@ function harness(initial = [{ id: "project_001", date: "2026-09-08", value: 1000
         },
         confirm: message => { confirmations.push(message); return confirmResult; }, alert() {},
     });
+    context.Auth = { fetch: (...args) => fetch(...args), ready: Promise.resolve(true) };
     for (const script of ["script.js", "data-manager.js"]) vm.runInContext(fs.readFileSync(path.join(root, script), "utf8"), context);
     const setForm = overrides => {
         const row = { date: "2027-02-01", value: 200000000, project_type: "테스트 유형", duration_days: 20, memo: "추가 메모", ...overrides };
         for (const [id, key] of [["project-date", "date"], ["project-value", "value"], ["project-type", "project_type"], ["project-duration", "duration_days"], ["project-memo", "memo"]]) node(id).value = String(row[key]);
     };
     return { context, node, calls, charts, failures, replies, confirmations, setForm,
-        get rows() { return rows; }, setRows(value) { rows = value; }, confirm(value) { confirmResult = value; } };
+        get rows() { return rows; }, get maxActiveReads() { return maxActiveReads; },
+        setRows(value) { rows = value; }, confirm(value) { confirmResult = value; } };
 }
 
 async function run() {
+    // Reproduce the post-write five-GET burst against an auth storage contention
+    // condition. Writes still succeed, so this must not produce a refresh warning.
+    const constrained = harness(undefined, { maxDataReads: 3 });
+    await constrained.context.loadManagedData();
+    constrained.setForm();
+    await constrained.context.submitProject({ preventDefault() {} });
+    assert.equal(constrained.rows.length, 2);
+    assert.equal(constrained.node("data-status").dataset.kind, "success", "POST committed, but concurrent refresh produced a false-looking failure notice");
+    const committedAt = constrained.calls.findIndex(call => call.method === "POST");
+    assert.deepEqual(constrained.calls.slice(committedAt + 1).filter(call => call.method === "GET").map(call => call.url), [
+        "/api/data", "/api/data/summary", "/api/data/yearly-summary", "/api/data/monthly-summary", "/api/data/project-type-summary"
+    ]);
+    const inserted = constrained.rows.find(row => row.id.startsWith("new_"));
+    constrained.context.editProject(inserted);
+    constrained.setForm({ value: 400000000 });
+    await constrained.context.submitProject({ preventDefault() {} });
+    assert.equal(constrained.node("data-status").dataset.kind, "success");
+    assert.equal(constrained.node("data-total-value").textContent, "500,000,000원");
+    constrained.confirm(true);
+    await constrained.context.deleteProject(inserted);
+    assert.equal(constrained.node("data-status").dataset.kind, "success");
+    assert.equal(constrained.node("data-total-value").textContent, "100,000,000원");
+    assert.equal(constrained.charts.size, 4);
+    assert.equal(constrained.calls.filter(call => call.method !== "GET").length, 3);
+    assert.equal(constrained.maxActiveReads, 1, "Refresh must not contend on the same authenticated session document");
+
     const h = harness();
     const c = h.context;
     assert.equal(await c.loadManagedData(), true);
@@ -233,13 +281,14 @@ async function run() {
     let older;
     h2.replies.set("GET /api/data", () => new Promise(resolve => { older = resolve; }));
     const oldRead = h2.context.loadManagedData();
+    await new Promise(setImmediate);
     h2.replies.delete("GET /api/data");
     h2.setRows([hostile]);
-    await h2.context.loadManagedData();
+    const latestRead = h2.context.loadManagedData();
     older({ ok: true, json: async () => ({ count: 0, data: [] }) });
-    await oldRead;
+    await Promise.all([oldRead, latestRead]);
     assert.equal(h2.node("project-list").children.length, 1);
-    console.log("Data UI: mock CRUD, confirmation, filters, 4 charts, empty/error states, safe rendering, conversation navigation, duplicate/stale request checks PASS");
+    console.log("Data UI: post-CRUD contention regression, serialized refresh order/recovery, mock CRUD, filters, 4 charts, errors, conversation and stale request checks PASS");
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; });

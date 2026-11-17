@@ -27,6 +27,7 @@ async function run() {
     const context = vm.createContext({
         console,
         document: {
+            addEventListener() {},
             getElementById: getNode,
             querySelector: getNode,
             querySelectorAll: () => [],
@@ -40,6 +41,7 @@ async function run() {
             return new Promise(resolve => { respond = resolve; });
         },
     });
+    context.Auth = { fetch: (...args) => context.fetch(...args), ready: Promise.resolve(true) };
     vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "script.js"), "utf8"), context);
     const input = getNode("user-input");
     const send = getNode("send-button");

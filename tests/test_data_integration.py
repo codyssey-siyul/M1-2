@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
+from security_helpers import authenticated_client
 from google.api_core.exceptions import ServiceUnavailable
 
 import firebase_config
@@ -62,7 +63,7 @@ class Collection:
 
 class Database:
     def __init__(self, items):
-        self.collections = {"data": Collection(items), "conversations": Collection()}
+        self.collections = {"data": Collection(items), "conversations": Collection(), "evaluation_data": Collection(), "evaluation_conversations": Collection()}
 
     def collection(self, name):
         return self.collections[name]
@@ -77,7 +78,7 @@ class IntegrationTests(unittest.TestCase):
         self.db_patch = patch.object(main, "db", self.db)
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
-        self.client = TestClient(main.app)
+        self.client = authenticated_client(self, main)
         model_patch = patch.dict(os.environ, {"OPENAI_MODEL": "test-model"})
         model_patch.start()
         self.addCleanup(model_patch.stop)

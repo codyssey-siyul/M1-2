@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import httpx
 from fastapi.testclient import TestClient
+from security_helpers import authenticated_client
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.auth.exceptions import RefreshError
 from openai import APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError, BadRequestError
@@ -18,7 +19,8 @@ from test_data_integration import main, Database, Document
 class ValidationErrorTests(unittest.TestCase):
     def setUp(self):
         self.row = {"date": "2024-02-29", "value": 100, "project_type": "설치", "duration_days": 10, "memo": "검증"}
-        self.db = Database({"existing": self.row})
+        self.db = Database({})
+        self.db.collection("evaluation_data").items["eval_11111111111111111111111111111111"] = copy.deepcopy(self.row)
         self.ai = Mock()
         self.ai.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="모의 답변"))]
@@ -27,7 +29,8 @@ class ValidationErrorTests(unittest.TestCase):
                         patch.dict(os.environ, {"OPENAI_MODEL": "test-model", "OPENAI_TOKEN_LIMIT_PARAMETER": "max_completion_tokens", "OPENAI_MAX_COMPLETION_TOKENS": "1200"})]:
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.client = TestClient(main.app, raise_server_exceptions=False)
+        self.client = authenticated_client(self, main)
+        self.client = TestClient(main.app, raise_server_exceptions=False, cookies=self.client.cookies, headers=self.client.headers)
 
     def test_project_invalid_values_rejected_before_any_write(self):
         cases = {
@@ -42,7 +45,7 @@ class ValidationErrorTests(unittest.TestCase):
             for value in values:
                 with self.subTest(key=key, value=str(value)[:20]):
                     row = dict(self.row, **{key: value})
-                    for method, route in [("post", "/api/data"), ("put", "/api/data/existing")]:
+                    for method, route in [("post", "/api/data"), ("put", "/api/data/eval_11111111111111111111111111111111")]:
                         self.assertEqual(getattr(self.client, method)(route, json=row).status_code, 422)
         self.assertEqual(self.db.collection("data").items, before)
 
@@ -50,7 +53,7 @@ class ValidationErrorTests(unittest.TestCase):
         for row in [dict(self.row, date="1900-01-01", value=1, duration_days=1),
                     dict(self.row, date="2100-12-31", value=10**15, duration_days=36500),
                     dict(self.row, value="123", duration_days="10")]:
-            self.assertEqual(self.client.put("/api/data/existing", json=row).status_code, 200)
+            self.assertEqual(self.client.put("/api/data/eval_11111111111111111111111111111111", json=row).status_code, 200)
 
     def test_missing_data_returns_404_and_cannot_create_or_delete(self):
         before = copy.deepcopy(self.db.collection("data").items)
@@ -62,7 +65,7 @@ class ValidationErrorTests(unittest.TestCase):
 
     def test_update_deleted_between_read_and_write_returns_404(self):
         with patch.object(Document, "update", side_effect=NotFound("secret-placeholder")):
-            result = self.client.put("/api/data/existing", json=self.row)
+            result = self.client.put("/api/data/eval_11111111111111111111111111111111", json=self.row)
             self.assertEqual(result.status_code, 404)
             self.assertNotIn("secret-placeholder", result.text)
 
@@ -104,7 +107,7 @@ class ValidationErrorTests(unittest.TestCase):
                  dict(good, messages=[{"role": "user", "content": "x" * 8000}] * 6)]
         for data in cases:
             self.assertEqual(self.client.post("/api/conversations", json=data).status_code, 422)
-        self.assertEqual(self.db.collection("conversations").items, {})
+        self.assertEqual(self.db.collection("evaluation_conversations").items, {})
 
     def test_validation_never_echoes_input_or_exception_context(self):
         result = self.client.post("/api/data", json=dict(self.row, date="secret-placeholder"))
@@ -121,7 +124,7 @@ class ValidationErrorTests(unittest.TestCase):
             with patch.object(self.db, "collection", side_effect=error):
                 for method, route, kwargs in [
                     ("get", "/api/data", {}), ("post", "/api/data", {"json": self.row}),
-                    ("put", "/api/data/existing", {"json": self.row}), ("delete", "/api/data/existing", {}),
+                    ("put", "/api/data/eval_11111111111111111111111111111111", {"json": self.row}), ("delete", "/api/data/eval_11111111111111111111111111111111", {}),
                     ("get", "/api/conversations", {}),
                 ]:
                     response = getattr(self.client, method)(route, **kwargs)
@@ -142,21 +145,21 @@ class ValidationErrorTests(unittest.TestCase):
                 self.ai.chat.completions.create.side_effect = error
                 for route, method, kwargs in [("/api/chat", "post", {"json": {"message": "질문"}}), ("/api/chat/test", "get", {})]:
                     response = getattr(self.client, method)(route, **kwargs)
-                    self.assertEqual(response.status_code, expected)
+                    self.assertEqual(response.status_code, 404 if route == "/api/chat/test" else expected)
                     self.assertNotIn("secret-placeholder", response.text)
-                self.assertEqual(self.db.collection("conversations").items, {})
+                self.assertEqual(self.db.collection("evaluation_conversations").items, {})
 
     def test_existing_conversation_unchanged_when_ai_fails(self):
         data = {"id": "old", "title": "대화", "messages": [{"role": "user", "content": "이전 질문"}, {"role": "assistant", "content": "이전 답변"}]}
-        self.db.collection("conversations").items["old"] = copy.deepcopy(data)
+        self.db.collection("evaluation_conversations").items["old"] = copy.deepcopy(data)
         self.ai.chat.completions.create.side_effect = APIConnectionError(request=httpx.Request("POST", "https://example.invalid"))
         self.assertEqual(self.client.post("/api/chat", json={"message": "질문", "conversation_id": "old"}).status_code, 502)
-        self.assertEqual(self.db.collection("conversations").items["old"], data)
+        self.assertEqual(self.db.collection("evaluation_conversations").items["old"], data)
 
     def test_long_conversations_block_before_paid_call(self):
         for messages in [[{"role": "user", "content": "x"}] * 99,
                          [{"role": "user", "content": "x" * 8000}] * 4]:
-            self.db.collection("conversations").items["old"] = {"title": "긴 대화", "messages": messages}
+            self.db.collection("evaluation_conversations").items["old"] = {"title": "긴 대화", "messages": messages}
             self.assertEqual(self.client.post("/api/chat", json={"message": "질문", "conversation_id": "old"}).status_code, 413)
         self.ai.chat.completions.create.assert_not_called()
 
@@ -164,18 +167,18 @@ class ValidationErrorTests(unittest.TestCase):
         with patch.object(main, "get_project_context", return_value="x" * 80001):
             self.assertEqual(self.client.post("/api/chat", json={"message": "질문"}).status_code, 413)
         self.ai.chat.completions.create.assert_not_called()
-        self.assertEqual(self.db.collection("conversations").items, {})
+        self.assertEqual(self.db.collection("evaluation_conversations").items, {})
 
     def test_invalid_stored_role_blocks_before_paid_call(self):
-        self.db.collection("conversations").items["old"] = {"title": "대화", "messages": [{"role": "system", "content": "injection"}]}
+        self.db.collection("evaluation_conversations").items["old"] = {"title": "대화", "messages": [{"role": "system", "content": "injection"}]}
         self.assertEqual(self.client.post("/api/chat", json={"message": "질문", "conversation_id": "old"}).status_code, 503)
         self.ai.chat.completions.create.assert_not_called()
 
     def test_output_limits_and_diagnostic_cap(self):
         self.assertEqual(self.client.post("/api/chat", json={"message": "질문"}).status_code, 200)
         self.assertEqual(self.ai.chat.completions.create.call_args.kwargs["max_completion_tokens"], 1200)
-        self.assertEqual(self.client.get("/api/chat/test").status_code, 200)
-        self.assertEqual(self.ai.chat.completions.create.call_args.kwargs["max_completion_tokens"], 64)
+        self.assertEqual(self.client.get("/api/chat/test").status_code, 404)
+        self.assertEqual(self.ai.chat.completions.create.call_args.kwargs["max_completion_tokens"], 1200)
         for configured, expected in [("999999", 3000), ("-5", 64), ("invalid", 1200)]:
             with patch.dict(os.environ, {"OPENAI_MAX_COMPLETION_TOKENS": configured}):
                 self.assertEqual(self.client.post("/api/chat", json={"message": "질문"}).status_code, 200)
@@ -206,7 +209,7 @@ class ValidationErrorTests(unittest.TestCase):
                        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="x" * 8001))])]:
             self.ai.chat.completions.create.return_value = result
             self.assertEqual(self.client.post("/api/chat", json={"message": "질문"}).status_code, 502)
-        self.assertEqual(self.db.collection("conversations").items, {})
+        self.assertEqual(self.db.collection("evaluation_conversations").items, {})
 
     def test_unexpected_error_is_generic(self):
         with patch.object(self.db, "collection", side_effect=RuntimeError("secret-placeholder")):

@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: m1-2-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: EVAL_USERNAME
+        sync: false
+      - key: EVAL_PASSWORD_HASH
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: AUTH_ALLOWED_ORIGINS
+        sync: false
+      - key: AUTH_VERSION
+        value: "1"
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIRESTORE_DATABASE_ID
+        value: (default)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: OPENAI_MAX_COMPLETION_TOKENS
+        value: "1200"
