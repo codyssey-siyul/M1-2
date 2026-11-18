@@ -21,10 +21,14 @@ const config = {
     outputDirectory: "dist",
     rewrites: [
         { source: "/api/:path*", destination: `${origin.origin}/api/:path*` },
+        { source: "/docs", destination: `${origin.origin}/docs` },
+        { source: "/openapi.json", destination: `${origin.origin}/openapi.json` },
         { source: "/app", destination: "/index.html" }
     ],
     headers: [
         { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "no-store" }] },
+        { source: "/docs", headers: [{ key: "Cache-Control", value: "no-store" }] },
+        { source: "/openapi.json", headers: [{ key: "Cache-Control", value: "no-store" }] },
         { source: "/:path*", headers: [
             { key: "X-Content-Type-Options", value: "nosniff" },
             { key: "Referrer-Policy", value: "same-origin" },
@@ -46,7 +50,7 @@ if (process.argv.includes("--configure")) {
     }
     for (const expected of config.rewrites) {
         if (!existing.rewrites.some(rule => rule.source === expected.source && rule.destination === expected.destination)) {
-            throw new Error("Required API/app rewrite is missing or incorrect; prepare vercel.json with --configure");
+            throw new Error("Required API/app/docs rewrite is missing or incorrect; prepare vercel.json with --configure");
         }
     }
     for (const rule of existing.headers || []) {

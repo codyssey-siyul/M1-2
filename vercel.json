@@ -5,10 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://m1-2-8d9s.onrender.com/api/:path*" },
+    { "source": "/docs", "destination": "https://m1-2-8d9s.onrender.com/docs" },
+    { "source": "/openapi.json", "destination": "https://m1-2-8d9s.onrender.com/openapi.json" },
     { "source": "/app", "destination": "/index.html" }
   ],
   "headers": [
     { "source": "/api/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/docs", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/openapi.json", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
     { "source": "/:path*", "headers": [
       { "key": "X-Content-Type-Options", "value": "nosniff" },
       { "key": "Referrer-Policy", "value": "same-origin" },
