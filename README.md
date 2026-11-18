@@ -135,7 +135,7 @@ Firebase Firestore를 사용하여 데이터를 관리
 | 웹 서비스 | https://m1-2-fawn.vercel.app |
 | GitHub 저장소 | https://github.com/codyssey-siyul/M1-2 |
 | 백엔드 API | https://m1-2-8d9s.onrender.com |
-| API 문서(Swagger) | https://m1-2-8d9s.onrender.com/docs |
+| API 문서(Swagger) | https://m1-2-fawn.vercel.app/docs |
 
 ### 이용 방법
 
@@ -151,7 +151,9 @@ Firebase Firestore를 사용하여 데이터를 관리
 - 평가용 로그인 정보는 별도로 전달
 - Render 무료 서비스 특성상 첫 접속 시 로딩이 길어질 수 있다.
 - AI는 실제 GPT API를 사용하므로 일부 질문에서 응답 오류가 발생할 수 있다.
-
+- **Swagger UI(API 문서)는 로그인 후 이용할 수 있다.** 웹서비스에 평가용 계정으로 로그인한 다음, 동일한 브라우저에서 [Swagger UI](https://m1-2-fawn.vercel.app/docs)에 접속
+- 백엔드(Render) 주소로 직접 접속하면 인증 오류가 발생할 수 있으므로, API 문서는 Vercel 주소를 이용
+  
 ---
 
 ## 6. 주요 기능
