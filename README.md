@@ -135,7 +135,7 @@ Firebase Firestore를 사용하여 데이터를 관리
 | 웹 서비스 | https://m1-2-fawn.vercel.app |
 | GitHub 저장소 | https://github.com/codyssey-siyul/M1-2 |
 | 백엔드 API | https://m1-2-8d9s.onrender.com |
-| API 문서(Swagger) | https://m1-2-fawn.vercel.app/docs |
+| Swagger UI | https://m1-2-fawn.vercel.app/docs |
 
 ### 이용 방법
 
